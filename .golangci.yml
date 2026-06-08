@@ -1,0 +1,161 @@
+run:
+  timeout: 5m
+  tests: false
+
+linters:
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - misspell
+    - gosimple
+    - gofmt
+    - goimports
+
+linters-settings:
+  misspell:
+    locale: US
+
+issues:
+  exclude-dirs:
+    - vendor
+    - node_modules
+  exclude-rules:
+    # Исключаем unused для cmd/ утилит (тестовые/вспомогательные программы)
+    - path: "cmd/"
+      linters:
+        - unused
+        - errcheck
+    # Исключаем errcheck для defer tx.Rollback (стандартный паттерн)
+    - path: "internal/storage/postgres_storage.go"
+      linters:
+        - errcheck
+      text: "tx.Rollback"
+    # Исключаем errcheck для осознанно игнорируемых ошибок в goroutine
+    - path: "internal/bot/message_handler.go"
+      linters:
+        - errcheck
+      text: "updatePersonalityForChat|ApplyRelevanceDecayToCausalMemory"
+    - path: "internal/bot/scheduler.go"
+      linters:
+        - errcheck
+      text: "analyzeAndUpdateProfileForced|analyzeAndUpdateProfile"
+    - path: "internal/bot/voice_messages_service.go"
+      linters:
+        - errcheck
+      text: "handleVoiceMessage"
+    - path: "internal/bot/responder.go"
+      linters:
+        - errcheck
+      text: "AddNameMentionForChat|AddRecentTopicForChat|AddSelfPerceptionForChat"
+    - path: "internal/bot/admin_commands.go"
+      linters:
+        - errcheck
+      text: "CleanupEmotionalMemories|CleanupCausalMemory"
+    - path: "internal/bot/personality_context.go"
+      linters:
+        - errcheck
+      text: "SavePersonalityMemory"
+    # Исключаем unused для legacy/мёртвого кода, который оставлен для обратной совместимости
+    - path: "internal/config/log.go"
+      linters:
+        - unused
+    - path: "internal/bot/emotional_response_adapter.go"
+      linters:
+        - unused
+    - path: "internal/bot/helpers.go"
+      linters:
+        - unused
+    - path: "internal/bot/input_handler.go"
+      linters:
+        - unused
+    - path: "internal/bot/message_chain.go"
+      linters:
+        - unused
+    - path: "internal/bot/message_handler.go"
+      linters:
+        - unused
+      text: "generateDailyTake"
+    - path: "internal/bot/personality_updater.go"
+      linters:
+        - unused
+      text: "nameRegex|topicRegex|selfReflectRegex"
+    - path: "internal/bot/photo_handler.go"
+      linters:
+        - unused
+    - path: "internal/bot/reaction_handler.go"
+      linters:
+        - unused
+    - path: "internal/bot/responder.go"
+      linters:
+        - unused
+    - path: "internal/bot/summary_handler.go"
+      linters:
+        - unused
+      text: "truncateStringEnd"
+    - path: "internal/bot/belief_analyzer.go"
+      linters:
+        - unused
+      text: "getBeliefInfluencedResponseType"
+    - path: "internal/bot/bot.go"
+      linters:
+        - unused
+      text: "mutex|runMongoDBCleanupTask"
+    - path: "internal/bot/free_will.go"
+      linters:
+        - unused
+    - path: "internal/openrouter/client.go"
+      linters:
+        - unused
+    - path: "internal/deepseek/client.go"
+      linters:
+        - unused
+    - path: "internal/gemini/client.go"
+      linters:
+        - unused
+    # Дополнительные unused в bot пакете
+    - path: "internal/bot/telegram_helpers.go"
+      linters:
+        - unused
+      text: "deleteMessage|sendAutoDeleteMessage"
+    - path: "internal/bot/telegram_reactions.go"
+      linters:
+        - unused
+      text: "encodeReactions"
+    - path: "internal/bot/voice_messages_service.go"
+      linters:
+        - unused
+      text: "generateAndSendVoiceMessage"
+    # staticcheck исключения
+    - path: "internal/bot/voice_handler.go"
+      linters:
+        - staticcheck
+      text: "this value of `formatted` is never used"
+    - path: "internal/bot/message_handler.go"
+      linters:
+        - staticcheck
+      text: "empty branch"
+    # ineffassign исключения для осознанно оставленного кода
+    - path: "internal/bot/helpers.go"
+      linters:
+        - ineffassign
+      text: "userIDTag"
+    - path: "internal/bot/telegram_helpers.go"
+      linters:
+        - ineffassign
+      text: "dbSettings"
+    - path: "internal/bot/voice_handler.go"
+      linters:
+        - ineffassign
+      text: "transcribedText"
+    # staticcheck SA4006: значение присваивается для отладки/логирования
+    - path: "internal/bot/helpers.go"
+      linters:
+        - staticcheck
+      text: "this value of `userIDTag` is never used"
+    - path: "internal/bot/voice_handler.go"
+      linters:
+        - staticcheck
+      text: "this value of `transcribedText` is never used"

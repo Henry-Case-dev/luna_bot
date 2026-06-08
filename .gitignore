@@ -1,0 +1,109 @@
+# Бинарные файлы и исполняемые файлы
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+bin/
+build/
+# Исполняемые файлы без расширения (Go)
+/luna_bot
+/test_*
+*_test
+*_build
+*_compile
+# Исключения для важных файлов без расширения
+!Dockerfile
+
+# Файлы тестов
+*.test
+*.out
+coverage.txt
+
+# Конфигурационные файлы и секреты
+config.yaml
+config.yml
+secrets/
+credentials.json
+
+# Временные файлы
+tmp/
+temp/
+.tmp/
+*.log
+*.log.*
+luna_bot_runtime.log
+
+# Локальная база данных SQLite
+local_database.db
+*.db
+
+# Зависимости и модули
+#vendor/
+
+# Логи
+*.log
+logs/
+
+# Кеш и временные файлы IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+.history/
+__debug_bin
+.fleet/
+
+# Другие специфические файлы
+.DS_Store
+Thumbs.db
+.project
+.classpath
+.settings/
+*.bak
+*.backup
+*.old
+*.orig
+*.rej
+*.sav
+*.tmp
+*.temp
+*.tlog
+desktop.ini
+# Конкретные .txt файлы с бэкапами (не исключать промпты в internal/bot/prompts/*.txt)
+env-backup.txt
+env.txt
+
+# Файл с переменными окружения
+.env
+
+# Папка IDE Cursor
+.cursor/
+.cursorignore
+
+# Папка Roo (AI-ассистент)
+.roo/
+
+# Файл с секретными переменными окружения
+.env.secrets
+.env.secrets.test
+
+# Конфигурационный файл Amvera (не нужен при использовании Dockerfile)
+amvera.yaml 
+
+# Папка с данными истории и большие JSON файлы
+data/
+*.json 
+
+# Временные файлы bash и редакторов
+*.sh~
+*.md~
+.env~
+
+# Документация и планы (не должны быть в репозитории)
+docs/
+plans/
+
+# Сводка состояния проекта (генерируется ИИ)
+STATE_SUMMARY.md

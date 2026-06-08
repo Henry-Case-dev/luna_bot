@@ -1,0 +1,409 @@
+package openrouter
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"log"
+	"net/http"
+	"strings"
+	"time"
+
+	"github.com/Henry-Case-dev/luna_bot/internal/config" // Нужен для Debug флага
+	"github.com/Henry-Case-dev/luna_bot/internal/llm"    // Импортируем наш интерфейс
+	"github.com/Henry-Case-dev/luna_bot/internal/utils"  // Добавляем импорт
+
+	// НЕ ИСПОЛЬЗУЕМ tgbotapi здесь, интерфейс работает с текстом
+	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5" // Добавляем импорт
+)
+
+// markdownInstructions содержит инструкции по форматированию Markdown для LLM.
+// Обновлено для стандартного Markdown (не V2).
+const markdownInstructions = `\n\nИнструкции по форматированию ответа (Стандартный Markdown):\n- Используй *жирный текст* для выделения важных слов или фраз (одинарные звездочки).\n- Используй _курсив_ для акцентов или названий (одинарные подчеркивания).\n- Используй 'моноширинный текст' для кода, команд или технических терминов (одинарные кавычки).\n- НЕ используй зачеркивание (~~текст~~).\n- НЕ используй спойлеры (||текст||).\n- НЕ используй подчеркивание (__текст__).\n- Ссылки оформляй как [текст ссылки](URL).\n- Блоки кода оформляй тремя обратными кавычками:\n'''\nкод\n'''\nили\n'''go\nкод\n'''\n- Нумерованные списки начинай с \"1. \", \"2. \" и т.д.\n- Маркированные списки начинай с \"- \" или \"* \".\n- Для цитат используй \"> \".\n- Не нужно экранировать символы вроде '.', '-', '!', '(', ')', '+', '#'. Стандартный Markdown менее строгий.\n- Используй ТОЛЬКО указанный Markdown. Не используй HTML.\n`
+
+// Убедимся, что Client реализует интерфейс llm.LLMClient
+var _ llm.LLMClient = (*Client)(nil)
+
+const defaultBaseURL = "https://openrouter.ai/api/v1"
+
+// Client для взаимодействия с OpenRouter API
+type Client struct {
+	httpClient *http.Client
+	apiKey     string
+	modelName  string
+	baseURL    string
+	siteURL    string // Optional HTTP-Referer
+	siteTitle  string // Optional X-Title
+	debug      bool
+}
+
+// New создает нового клиента OpenRouter
+func New(apiKey, modelName, siteURL, siteTitle string, cfg *config.Config) (*Client, error) {
+	if apiKey == "" {
+		return nil, fmt.Errorf("OpenRouter API ключ не предоставлен")
+	}
+	if modelName == "" {
+		return nil, fmt.Errorf("имя модели OpenRouter не предоставлено")
+	}
+
+	log.Printf("Клиент OpenRouter инициализирован для модели: %s", modelName)
+
+	return &Client{
+		httpClient: &http.Client{Timeout: 120 * time.Second}, // Таймаут 2 минуты
+		apiKey:     apiKey,
+		modelName:  modelName,
+		baseURL:    defaultBaseURL,
+		siteURL:    siteURL,
+		siteTitle:  siteTitle,
+		debug:      cfg.Debug, // Берем флаг из конфига
+	}, nil
+}
+
+// Close для OpenRouter клиента (в данном случае ничего не делает)
+func (c *Client) Close() error {
+	return nil
+}
+
+// --- Структуры для запроса и ответа OpenRouter (Chat Completions) ---
+
+type ChatCompletionMessage struct {
+	Role    string `json:"role"`              // "system", "user", "assistant"
+	Content string `json:"content,omitempty"` // Текстовый контент
+	// Name    string        `json:"name,omitempty"`    // Опционально
+	// ToolCalls []*ToolCall `json:"tool_calls,omitempty"` // Пока не используем
+	// ToolCallID string      `json:"tool_call_id,omitempty"` // Пока не используем
+}
+
+type ChatCompletionRequest struct {
+	Model       string                  `json:"model"`
+	Messages    []ChatCompletionMessage `json:"messages"`
+	Temperature *float64                `json:"temperature,omitempty"`
+	MaxTokens   *int                    `json:"max_tokens,omitempty"`
+	TopP        *float64                `json:"top_p,omitempty"`
+	// Stream      bool                    `json:"stream,omitempty"` // Пока не используем стриминг
+	// Stop        []string                `json:"stop,omitempty"`
+	// Seed        *int                    `json:"seed,omitempty"`
+	// Tools       []*Tool                 `json:"tools,omitempty"`
+	// ToolChoice  interface{}             `json:"tool_choice,omitempty"` // string or ToolChoice
+}
+
+type ResponseMessage struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+	// ToolCalls []*ToolCall `json:"tool_calls,omitempty"`
+}
+
+type Choice struct {
+	Index        int             `json:"index"`
+	Message      ResponseMessage `json:"message"`
+	FinishReason string          `json:"finish_reason"` // e.g., "stop", "length", "tool_calls"
+}
+
+type Usage struct {
+	PromptTokens     int `json:"prompt_tokens"`
+	CompletionTokens int `json:"completion_tokens"`
+	TotalTokens      int `json:"total_tokens"`
+}
+
+type ChatCompletionResponse struct {
+	ID                string   `json:"id"`
+	Object            string   `json:"object"`  // "chat.completion"
+	Created           int64    `json:"created"` // Unix timestamp
+	Model             string   `json:"model"`
+	Choices           []Choice `json:"choices"`
+	Usage             Usage    `json:"usage"`
+	SystemFingerprint *string  `json:"system_fingerprint,omitempty"`
+}
+
+// Error Detail structure for OpenRouter errors
+type ErrorDetail struct {
+	Code    *string `json:"code"` // Can be null
+	Message string  `json:"message"`
+	Param   *string `json:"param"` // Can be null
+	Type    string  `json:"type"`
+}
+
+// Error Response structure
+type ErrorResponse struct {
+	Error ErrorDetail `json:"error"`
+}
+
+// --- Реализация методов интерфейса llm.LLMClient ---
+
+// GenerateResponse (DEPRECATED in interface logic) - вызывает GenerateResponseFromTextContext
+func (c *Client) GenerateResponse(systemPrompt string, history []*tgbotapi.Message, lastMessage *tgbotapi.Message, temperature float32) (string, error) {
+	// Форматируем историю и последнее сообщение в единый текст
+	// Используем простой формат для передачи в GenerateResponseFromTextContext
+	var contextBuilder strings.Builder
+	for _, msg := range history {
+		role := "User"
+		if msg.From != nil && msg.From.IsBot { // Примитивное определение роли
+			role = "Bot"
+		}
+		text := msg.Text
+		if text == "" && msg.Caption != "" {
+			text = msg.Caption
+		}
+		if text != "" {
+			contextBuilder.WriteString(fmt.Sprintf("%s: %s\n", role, text))
+		}
+	}
+	// Добавляем последнее сообщение
+	if lastMessage != nil {
+		role := "User"
+		if lastMessage.From != nil && lastMessage.From.IsBot {
+			role = "Bot"
+		}
+		text := lastMessage.Text
+		if text == "" && lastMessage.Caption != "" {
+			text = lastMessage.Caption
+		}
+		if text != "" {
+			contextBuilder.WriteString(fmt.Sprintf("%s: %s\n", role, text)) // Добавляем последнее сообщение как user
+		} else {
+			contextBuilder.WriteString("User: [сообщение без текста]\n")
+		}
+	}
+
+	// Вызываем основной метод, ПРОБРАСЫВАЯ ТЕМПЕРАТУРУ
+	return c.GenerateResponseFromTextContext(systemPrompt, contextBuilder.String(), temperature)
+}
+
+// GenerateResponseFromTextContext генерирует ответ на основе промпта и готового текстового контекста
+func (c *Client) GenerateResponseFromTextContext(systemPrompt string, contextText string, temperature float32) (string, error) {
+	if c.debug {
+		log.Printf("[DEBUG] OpenRouter Запрос (TextContext): SystemPrompt: %s...", utils.TruncateString(systemPrompt, 100))
+		log.Printf("[DEBUG] OpenRouter Запрос (TextContext): ContextText: %s...", utils.TruncateString(contextText, 150))
+		log.Printf("[DEBUG] OpenRouter Запрос (TextContext): Модель %s, Температура %.2f", c.modelName, temperature)
+	}
+
+	messages := []ChatCompletionMessage{
+		{
+			Role:    "system",
+			Content: systemPrompt, // Используем оригинальный systemPrompt
+		},
+		{
+			Role:    "user",
+			Content: contextText,
+		},
+	}
+
+	// Преобразуем float32 в *float64 для запроса
+	var tempPtr *float64
+	if temperature > 0 { // Передаем температуру, только если она задана (больше 0)
+		t := float64(temperature)
+		tempPtr = &t
+	}
+
+	request := ChatCompletionRequest{
+		Model:       c.modelName,
+		Messages:    messages,
+		Temperature: tempPtr, // ИСПОЛЬЗУЕМ ПЕРЕДАННУЮ ТЕМПЕРАТУРУ
+		// MaxTokens, TopP и т.д. могут быть добавлены сюда из конфига, если нужно
+	}
+
+	return c.sendRequest(request)
+}
+
+// GenerateArbitraryResponse генерирует ответ для задач без истории (саммари, анализ срача)
+func (c *Client) GenerateArbitraryResponse(systemPrompt string, contextText string, temperature float32) (string, error) {
+	if c.debug {
+		log.Printf("[DEBUG] OpenRouter Запрос (Arbitrary): SystemPrompt: %s...", utils.TruncateString(systemPrompt, 100))
+		log.Printf("[DEBUG] OpenRouter Запрос (Arbitrary): ContextText: %s...", utils.TruncateString(contextText, 150))
+		log.Printf("[DEBUG] OpenRouter Запрос (Arbitrary): Модель %s, Температура %.2f", c.modelName, temperature)
+	}
+	messages := []ChatCompletionMessage{
+		{
+			Role:    "system",
+			Content: systemPrompt, // Используем оригинальный systemPrompt
+		},
+		{
+			Role:    "user",
+			Content: contextText,
+		},
+	}
+
+	// Преобразуем float32 в *float64 для запроса
+	var tempPtr *float64
+	if temperature > 0 { // Передаем температуру, только если она задана (больше 0)
+		t := float64(temperature)
+		tempPtr = &t
+	}
+
+	request := ChatCompletionRequest{
+		Model:       c.modelName,
+		Messages:    messages,
+		Temperature: tempPtr, // ИСПОЛЬЗУЕМ ПЕРЕДАННУЮ ТЕМПЕРАТУРУ
+	}
+
+	return c.sendRequest(request)
+}
+
+// sendRequest - внутренняя функция для отправки запроса к OpenRouter API
+func (c *Client) sendRequest(payload ChatCompletionRequest) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Second) // Таймаут 2.5 минуты
+	defer cancel()
+
+	jsonData, err := json.Marshal(payload)
+	if err != nil {
+		return "", fmt.Errorf("ошибка маршалинга JSON для OpenRouter: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+"/chat/completions", bytes.NewBuffer(jsonData))
+	if err != nil {
+		return "", fmt.Errorf("ошибка создания HTTP запроса для OpenRouter: %w", err)
+	}
+
+	// Установка заголовков
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	req.Header.Set("Content-Type", "application/json")
+	if c.siteURL != "" {
+		req.Header.Set("HTTP-Referer", c.siteURL)
+	}
+	if c.siteTitle != "" {
+		req.Header.Set("X-Title", c.siteTitle)
+	}
+
+	if c.debug {
+		log.Printf("[DEBUG] OpenRouter Запрос: URL=%s, Модель=%s", req.URL.String(), payload.Model)
+		// Логирование тела запроса может быть объемным, делаем это осторожно
+		// log.Printf("[DEBUG] OpenRouter Запрос Тело: %s", string(jsonData))
+		log.Printf("[DEBUG] OpenRouter Request Payload: Model=%s, Messages=%d", payload.Model, len(payload.Messages))
+		if len(payload.Messages) > 0 {
+			log.Printf("[DEBUG] OpenRouter Last Message: Role=%s, Content=%s...", payload.Messages[len(payload.Messages)-1].Role, utils.TruncateString(payload.Messages[len(payload.Messages)-1].Content, 150))
+		}
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("ошибка выполнения HTTP запроса к OpenRouter: %w", err)
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("ошибка чтения тела ответа OpenRouter: %w", err)
+	}
+
+	if c.debug {
+		log.Printf("[DEBUG] OpenRouter Ответ: Статус=%s", resp.Status)
+		// Логирование тела ответа может быть объемным
+		// log.Printf("[DEBUG] OpenRouter Ответ Тело: %s", string(bodyBytes))
+	}
+
+	// Проверка статуса ответа
+	if resp.StatusCode != http.StatusOK {
+		// Попытка распарсить тело ошибки
+		var errorResp ErrorResponse
+		if json.Unmarshal(bodyBytes, &errorResp) == nil && errorResp.Error.Message != "" {
+			log.Printf("[ERROR] OpenRouter API Error: Type=%s, Code=%v, Message=%s",
+				errorResp.Error.Type, errorResp.Error.Code, errorResp.Error.Message)
+			// Особая обработка 429 Rate Limit
+			if resp.StatusCode == http.StatusTooManyRequests {
+				return "[Лимит]", fmt.Errorf("OpenRouter API Rate Limit (429): %s", errorResp.Error.Message)
+			}
+			return "", fmt.Errorf("ошибка OpenRouter API (%d): %s", resp.StatusCode, errorResp.Error.Message)
+		}
+		// Если не удалось распарсить ошибку, возвращаем общую ошибку
+		return "", fmt.Errorf("ошибка OpenRouter API: статус %s, тело: %s", resp.Status, string(bodyBytes))
+	}
+
+	// Парсинг успешного ответа
+	var successResp ChatCompletionResponse
+	if err := json.Unmarshal(bodyBytes, &successResp); err != nil {
+		return "", fmt.Errorf("ошибка парсинга успешного ответа OpenRouter: %w. Тело: %s", err, string(bodyBytes))
+	}
+
+	// Проверка наличия ответа
+	if len(successResp.Choices) == 0 || successResp.Choices[0].Message.Content == "" {
+		if c.debug {
+			log.Printf("[DEBUG] OpenRouter Ответ: Получен пустой ответ или нет вариантов.")
+		}
+		// Проверяем FinishReason
+		finishReason := "unknown"
+		if len(successResp.Choices) > 0 {
+			finishReason = successResp.Choices[0].FinishReason
+		}
+		log.Printf("[WARN] OpenRouter вернул пустой ответ. FinishReason: %s", finishReason)
+
+		// Если заблокировано по safety/content filter
+		if strings.Contains(strings.ToLower(finishReason), "content_filter") {
+			return "[Заблокировано]", fmt.Errorf("ответ заблокирован OpenRouter (content_filter)")
+		}
+
+		return "", fmt.Errorf("OpenRouter не вернул валидный ответ (choices пуст или content пуст)")
+	}
+
+	finalResponse := successResp.Choices[0].Message.Content
+	if c.debug {
+		usage := successResp.Usage
+		log.Printf("[DEBUG] OpenRouter Ответ: Успешно. Токены: Prompt=%d, Completion=%d, Total=%d. FinishReason: %s",
+			usage.PromptTokens, usage.CompletionTokens, usage.TotalTokens, successResp.Choices[0].FinishReason)
+		// log.Printf("[DEBUG] OpenRouter Ответ Текст: %s...", truncateString(finalResponse, 100))
+	}
+
+	// Проверка на блокировку по safety/content filter в finish_reason
+	if strings.Contains(strings.ToLower(successResp.Choices[0].FinishReason), "content_filter") {
+		log.Printf("[WARN] OpenRouter Ответ заблокирован: Причина=%s", successResp.Choices[0].FinishReason)
+		return "[Заблокировано]", fmt.Errorf("ответ заблокирован OpenRouter: %s", successResp.Choices[0].FinishReason)
+	}
+
+	return finalResponse, nil
+}
+
+// TranscribeAudio для OpenRouter (возвращает ошибку, не стандартная функция)
+func (c *Client) TranscribeAudio(audioData []byte, mimeType string) (string, error) {
+	// OpenRouter может поддерживать транскрипцию через Whisper или другие модели,
+	// но это требует другого эндпоинта (/audio/transcriptions) и структуры запроса.
+	// В рамках Chat Completions это не сделать.
+	return "", fmt.Errorf("транскрибация аудио через OpenRouter /chat/completions не поддерживается")
+}
+
+// EmbedContent генерирует векторное представление текста (заглушка)
+func (c *Client) EmbedContent(text string) ([]float32, error) {
+	// OpenRouter не предоставляет прямого API для эмбеддингов
+	return nil, fmt.Errorf("embedding not supported by OpenRouter")
+}
+
+// GenerateContentWithImage реализация для интерфейса, но OpenRouter по умолчанию не поддерживает обработку изображений
+func (c *Client) GenerateContentWithImage(ctx context.Context, systemPrompt string, imageData []byte, caption string) (string, error) {
+	if c.debug {
+		log.Printf("[DEBUG] OpenRouter не поддерживает обработку изображений по умолчанию.")
+	}
+	return "", errors.New("OpenRouter не поддерживает обработку изображений по умолчанию")
+}
+
+// Вспомогательная функция для обрезки строки
+func truncateString(s string, maxLen int) string {
+	runes := []rune(s)
+	if len(runes) <= maxLen {
+		return s
+	}
+	if maxLen < 3 {
+		return string(runes[:maxLen])
+	}
+	return string(runes[:maxLen-3]) + "..."
+}
+
+// GenerateResponseByType генерирует ответ, используя оптимальную модель для указанного типа ответа.
+// Для OpenRouter клиента используется GenerateArbitraryResponse независимо от типа ответа.
+func (c *Client) GenerateResponseByType(responseType llm.ResponseType, systemPrompt string, contextText string, temperature float32) (string, error) {
+	if c.debug {
+		log.Printf("[DEBUG] OpenRouter: Генерация ответа типа %s с температурой %f", responseType, temperature)
+	}
+
+	// Для OpenRouter используем стандартный метод GenerateArbitraryResponse
+	// В будущем здесь можно добавить логику выбора модели на основе responseType
+	return c.GenerateArbitraryResponse(systemPrompt, contextText, temperature)
+}
+
+// GenerateImageWithEdit реализация для интерфейса, но OpenRouter не поддерживает генерацию изображений в текущей реализации
+func (c *Client) GenerateImageWithEdit(ctx context.Context, baseImageData []byte, editPrompt string) ([]byte, error) {
+	if c.debug {
+		log.Printf("[DEBUG] OpenRouter не поддерживает генерацию изображений в текущей реализации.")
+	}
+	return nil, fmt.Errorf("OpenRouter не поддерживает генерацию изображений в текущей реализации")
+}
