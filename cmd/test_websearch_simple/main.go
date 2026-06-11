@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 
@@ -10,10 +11,20 @@ import (
 func main() {
 	fmt.Println("=== Простой тест настроек веб-поиска ===")
 
-	// Загружаем конфигурацию
+	source := config.NewYAMLConfigSource("configs/luna_bot.yaml")
+	source.SetStrictMode(false)
+	cfgV2, yamlErr := source.Load(context.Background())
+
 	cfg, err := config.Load()
 	if err != nil {
 		log.Fatalf("❌ Ошибка загрузки конфигурации: %v", err)
+	}
+
+	if yamlErr != nil {
+		log.Printf("[WARN] YAML не загружен (%v), используется .env", yamlErr)
+	} else {
+		log.Printf("[INFO] YAML загружен успешно")
+		_ = cfgV2
 	}
 
 	fmt.Printf("📊 Настройки веб-поиска:\n")

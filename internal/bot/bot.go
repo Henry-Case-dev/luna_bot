@@ -1,21 +1,17 @@
 package bot
 
 import (
-	"context"
 	"fmt"
 	"log"
-	"math"
-	"math/rand"
 	"strings"
+	"math/rand"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/Henry-Case-dev/luna_bot/internal/config"
-	"github.com/Henry-Case-dev/luna_bot/internal/deepseek"
 	"github.com/Henry-Case-dev/luna_bot/internal/gemini"
 	"github.com/Henry-Case-dev/luna_bot/internal/llm"
-	"github.com/Henry-Case-dev/luna_bot/internal/openrouter"
 	"github.com/Henry-Case-dev/luna_bot/internal/storage"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 
@@ -71,161 +67,6 @@ type Bot struct {
 	dedupMap map[string]time.Time
 	dedupTTL time.Duration
 }
-
-// retLlmClient — тонкий декоратор над llm.LLMClient с экспоненциальным ретраем и джиттером для транзиентных ошибок.
-type retLlmClient struct {
-	inner llm.LLMClient
-	// Параметры можно расширить/взять из cfg при необходимости
-	maxAttempts int
-	baseDelay   time.Duration
-	maxDelay    time.Duration
-	// Функция фолбэка: по requestType вернуть альтернативный клиент или nil
-	getFallback func(respType llm.ResponseType) llm.LLMClient
-	// Разрешенные типы для фолбэка (нормализованные строки)
-	fallbackAllowed map[string]struct{}
-}
-
-func newRetryingLLMClient(inner llm.LLMClient, cfg *config.Config) llm.LLMClient {
-	// Консервативные дефолты; при необходимости вынести в env
-	r := &retLlmClient{
-		inner:       inner,
-		maxAttempts: 3,
-		baseDelay:   200 * time.Millisecond,
-		maxDelay:    1200 * time.Millisecond,
-		getFallback: nil,
-		fallbackAllowed: func() map[string]struct{} {
-			m := map[string]struct{}{}
-			if cfg != nil {
-				for _, t := range cfg.LLMFallbackCriticalTypes {
-					m[strings.ToLower(strings.TrimSpace(t))] = struct{}{}
-				}
-			}
-			return m
-		}(),
-	}
-	return r
-}
-
-// shouldRetry определяет, стоит ли ретраить ошибку (только явные транзиентные случаи, без логики провайдера)
-func (r *retLlmClient) shouldRetry(err error) bool {
-	if err == nil {
-		return false
-	}
-	s := strings.ToLower(err.Error())
-	// 5xx/429/timeout/temporarily unavailable
-	return strings.Contains(s, " 5") || // грубый фильтр на коды в строке
-		strings.Contains(s, "429") ||
-		strings.Contains(s, "rate limit") ||
-		strings.Contains(s, "timeout") ||
-		strings.Contains(s, "temporar") ||
-		strings.Contains(s, "unavailable")
-}
-
-func (r *retLlmClient) backoff(attempt int) {
-	// экспонента + джиттер
-	pow := math.Pow(2, float64(attempt-1))
-	delay := time.Duration(float64(r.baseDelay) * pow)
-	if delay > r.maxDelay {
-		delay = r.maxDelay
-	}
-	// джиттер ±30%
-	jitterFrac := 0.3
-	jitter := (rand.Float64()*2 - 1) * jitterFrac
-	jittered := time.Duration(float64(delay) * (1 + jitter))
-	if jittered < 0 {
-		jittered = delay
-	}
-	time.Sleep(jittered)
-}
-
-// Ниже — прозрачная прокси-реализация интерфейса llm.LLMClient
-func (r *retLlmClient) GenerateResponse(systemPrompt string, history []*tgbotapi.Message, lastMessage *tgbotapi.Message, temperature float32) (string, error) {
-	var out string
-	var err error
-	for attempt := 1; attempt <= r.maxAttempts; attempt++ {
-		out, err = r.inner.GenerateResponse(systemPrompt, history, lastMessage, temperature)
-		if err == nil || !r.shouldRetry(err) {
-			return out, err
-		}
-		log.Printf("[LLM-Retry] GenerateResponse попытка %d/%d из-за ошибки: %v", attempt, r.maxAttempts, err)
-		r.backoff(attempt)
-	}
-	return out, err
-}
-
-func (r *retLlmClient) GenerateResponseFromTextContext(systemPrompt string, contextText string, temperature float32) (string, error) {
-	var out string
-	var err error
-	for attempt := 1; attempt <= r.maxAttempts; attempt++ {
-		out, err = r.inner.GenerateResponseFromTextContext(systemPrompt, contextText, temperature)
-		if err == nil || !r.shouldRetry(err) {
-			return out, err
-		}
-		log.Printf("[LLM-Retry] GenerateResponseFromTextContext попытка %d/%d из-за ошибки: %v", attempt, r.maxAttempts, err)
-		r.backoff(attempt)
-	}
-	return out, err
-}
-
-func (r *retLlmClient) GenerateArbitraryResponse(systemPrompt string, contextText string, temperature float32) (string, error) {
-	var out string
-	var err error
-	for attempt := 1; attempt <= r.maxAttempts; attempt++ {
-		out, err = r.inner.GenerateArbitraryResponse(systemPrompt, contextText, temperature)
-		if err == nil || !r.shouldRetry(err) {
-			return out, err
-		}
-		log.Printf("[LLM-Retry] GenerateArbitraryResponse попытка %d/%d из-за ошибки: %v", attempt, r.maxAttempts, err)
-		r.backoff(attempt)
-	}
-	return out, err
-}
-
-func (r *retLlmClient) GenerateResponseByType(responseType llm.ResponseType, systemPrompt string, contextText string, temperature float32) (string, error) {
-	var out string
-	var err error
-	for attempt := 1; attempt <= r.maxAttempts; attempt++ {
-		out, err = r.inner.GenerateResponseByType(responseType, systemPrompt, contextText, temperature)
-		if err == nil || !r.shouldRetry(err) {
-			return out, err
-		}
-		log.Printf("[LLM-Retry] GenerateResponseByType(%s) попытка %d/%d из-за ошибки: %v", string(responseType), attempt, r.maxAttempts, err)
-		r.backoff(attempt)
-	}
-	// Если есть фолбэк и тип разрешен — пробуем альтернативный клиент
-	if r.getFallback != nil {
-		if _, ok := r.fallbackAllowed[strings.ToLower(string(responseType))]; ok {
-			fb := r.getFallback(responseType)
-			if fb != nil {
-				log.Printf("[LLM-Fallback] Переключение на альтернативный провайдер для типа %s", responseType)
-				return fb.GenerateResponseByType(responseType, systemPrompt, contextText, temperature)
-			}
-		}
-	}
-	return out, err
-}
-
-func (r *retLlmClient) TranscribeAudio(audioData []byte, mimeType string) (string, error) {
-	// аудио как правило короткие — без ретрая, прямой вызов
-	return r.inner.TranscribeAudio(audioData, mimeType)
-}
-
-func (r *retLlmClient) EmbedContent(text string) ([]float32, error) {
-	// эмбеддинги могут быть многочисленны — ретрай не обязателен
-	return r.inner.EmbedContent(text)
-}
-
-func (r *retLlmClient) GenerateContentWithImage(ctx context.Context, systemPrompt string, imageData []byte, caption string) (string, error) {
-	// изображения редки — без ретрая, прямой вызов
-	return r.inner.GenerateContentWithImage(ctx, systemPrompt, imageData, caption)
-}
-
-func (r *retLlmClient) GenerateImageWithEdit(ctx context.Context, baseImageData []byte, editPrompt string) ([]byte, error) {
-	// генерация изображений редка — без ретрая, прямой вызов
-	return r.inner.GenerateImageWithEdit(ctx, baseImageData, editPrompt)
-}
-
-func (r *retLlmClient) Close() error { return r.inner.Close() }
 
 // GetRecentTopicsForChat возвращает до n последних тем из PersonalityMemory для чата
 func (b *Bot) GetRecentTopicsForChat(chatID int64, n int) []string {
@@ -286,8 +127,8 @@ func (b *Bot) buildAssociativeKeys(chatID int64, extra ...string) []string {
 	return uniq
 }
 
-// New создает и инициализирует новый экземпляр бота
-func New(cfg *config.Config) (*Bot, error) {
+// New создает и инициализирует новый экземпляр бота.
+func New(cfg *config.Config, llmClient llm.LLMClient) (*Bot, error) {
 	log.Println("Инициализация Telegram API...")
 	api, err := tgbotapi.NewBotAPI(cfg.TelegramToken)
 	if err != nil {
@@ -303,70 +144,15 @@ func New(cfg *config.Config) (*Bot, error) {
 		log.Println("Режим отладки выключен.")
 	}
 
-	// Инициализация LLM клиентов с маршрутизацией по типам ответов
-	log.Println("Инициализация LLM клиентов с поддержкой маршрутизации по ResponseTypeConfigs...")
-	var llmClient llm.LLMClient
-	var embeddingClient *gemini.Client
+	log.Println("Инициализация LLM клиентов...")
 
-	// Всегда создаем клиент Gemini для эмбеддингов, фото, аудио, изображений
+	// Gemini для эмбеддингов
+	var embeddingClient *gemini.Client
 	embeddingClient, err = gemini.New(cfg, cfg.GeminiModelName, cfg.GeminiEmbeddingModelName, cfg.Debug)
 	if err != nil {
-		return nil, fmt.Errorf("ошибка инициализации клиента Gemini для эмбеддингов: %w", err)
-	}
-	log.Println("✓ Gemini (эмбеддинги, фото, аудио, изображения) успешно инициализирован")
-
-	// Инициализируем все конфигурированные провайдеры в кэше
-	llmClients := make(map[config.LLMProvider]llm.LLMClient)
-	llmClients[config.ProviderGemini] = embeddingClient
-
-	// Инициализируем DeepSeek если конфигурирован
-	if cfg.DeepSeekAPIKey != "" {
-		dsClient, err := deepseek.New(cfg.DeepSeekAPIKey, cfg.DeepSeekModelName, cfg.DeepSeekBaseURL, cfg.Debug)
-		if err != nil {
-			log.Printf("[WARN] Ошибка инициализации DeepSeek: %v (будет недоступен для ResponseTypeConfigs)", err)
-		} else {
-			llmClients[config.ProviderDeepSeek] = dsClient
-			log.Println("✓ DeepSeek успешно инициализирован")
-		}
-	}
-
-	// Инициализируем OpenRouter если конфигурирован
-	if cfg.OpenRouterAPIKey != "" {
-		orClient, err := openrouter.New(cfg.OpenRouterAPIKey, cfg.OpenRouterModelName, cfg.OpenRouterSiteURL, cfg.OpenRouterSiteTitle, cfg)
-		if err != nil {
-			log.Printf("[WARN] Ошибка инициализации OpenRouter: %v (будет недоступен для ResponseTypeConfigs)", err)
-		} else {
-			llmClients[config.ProviderOpenRouter] = orClient
-			log.Println("✓ OpenRouter успешно инициализирован")
-		}
-	}
-
-	// Создаем LLMRouter для маршрутизации запросов по типам ответов
-	router := NewLLMRouter(cfg, llmClients, embeddingClient, cfg.Debug)
-	llmClient = router
-
-	// Оборачиваем router в ретраящий декоратор с поддержкой фолбэка
-	rClient := newRetryingLLMClient(llmClient, cfg).(*retLlmClient)
-	rClient.getFallback = func(respType llm.ResponseType) llm.LLMClient {
-		if cfg == nil || !cfg.LLMFallbackEnabled {
-			return nil
-		}
-		// Порядок провайдеров из конфига
-		for _, p := range cfg.LLMFallbackProviderOrder {
-			name := strings.ToLower(strings.TrimSpace(p))
-			if client, ok := llmClients[config.LLMProvider(name)]; ok && client != nil {
-				return client
-			}
-		}
-		return nil
-	}
-	llmClient = rClient
-
-	log.Println("✓ LLM маршрутизация успешно инициализирована (Gemini → основной + ResponseTypeConfigs)")
-
-	// Логируем таблицу маршрутизации для отладки
-	if len(cfg.ResponseTypeConfigs) > 0 {
-		config.LogResponseTypeConfigs(cfg.ResponseTypeConfigs)
+		log.Printf("[WARN] Ошибка инициализации клиента Gemini для эмбеддингов: %v", err)
+	} else {
+		log.Println("✓ Gemini (эмбеддинги) успешно инициализирован")
 	}
 
 	// Инициализация источника случайных чисел

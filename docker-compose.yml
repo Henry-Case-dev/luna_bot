@@ -9,6 +9,7 @@ services:
       - PRODUCTION=true
       - DOCKER=true
       - NGINX_MODE=false
+      - USE_V2_ROUTER=true
       - POSTGRESQL_HOST=db
       - POSTGRESQL_PORT=5432
       - POSTGRESQL_USER=${POSTGRESQL_USER}
@@ -17,6 +18,7 @@ services:
     volumes:
       - bot-logs:/var/log/luna_bot
       - ./data:/app/data
+      - ./configs/luna_bot.yaml:/app/configs/luna_bot.yaml:ro
     ports:
       - "127.0.0.1:8080:8080"
     restart: unless-stopped

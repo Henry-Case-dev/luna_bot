@@ -16,6 +16,13 @@ import (
 )
 
 // ImageGenerationService - основной сервис генерации изображений
+// TODO(cln-07): Мигрировать на ImageGenerator capability-интерфейс из llm пакета.
+// Сейчас сервис работает через PersonalityBasedImageService, который использует
+// прямой вызов LLM-клиента вместо ImageGenerator.GenerateImageWithEdit().
+// После миграции:
+//   - ImageGenerationService должен принимать llm.ImageGenerator из ProviderRegistry
+//   - PersonalityBasedImageService должен быть заменён на прямой вызов ImageGenerator
+//   - Метод DecisionMechanismShouldGenerate должен использовать capability-based роутинг
 type ImageGenerationService struct {
 	bot                     *Bot
 	enabled                 bool

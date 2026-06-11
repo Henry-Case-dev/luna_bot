@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log"
 	"os"
 
@@ -23,18 +24,27 @@ func main() {
 	os.Setenv("STORAGE_TYPE", "file") // Используем файловое хранилище для теста
 	os.Setenv("DEBUG", "true")
 
-	// Загружаем конфигурацию
-	log.Println("Загрузка конфигурации...")
+	source := config.NewYAMLConfigSource("configs/luna_bot.yaml")
+	source.SetStrictMode(false)
+	cfgV2, yamlErr := source.Load(context.Background())
+
 	cfg, err := config.Load()
 	if err != nil {
 		log.Fatalf("Ошибка загрузки конфигурации: %v", err)
+	}
+
+	if yamlErr != nil {
+		log.Printf("[WARN] YAML не загружен (%v), используется .env", yamlErr)
+	} else {
+		log.Printf("[INFO] YAML загружен успешно")
+		_ = cfgV2
 	}
 
 	log.Printf("Конфигурация загружена. LLM_PROVIDER: %s", cfg.LLMProvider)
 
 	// Создаем экземпляр бота
 	log.Println("Создание экземпляра бота...")
-	botInstance, err := bot.New(cfg)
+	botInstance, err := bot.New(cfg, nil)
 	if err != nil {
 		log.Fatalf("ТЕСТ ПРОВАЛЕН: Ошибка создания бота: %v", err)
 	}

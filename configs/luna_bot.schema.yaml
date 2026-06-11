@@ -1,0 +1,1375 @@
+# yaml-language-server: $schema=http://json-schema.org/draft-07/schema#
+# =============================================================================
+# Luna Bot — JSON Schema для IDE-автодополнения (luna_bot.yaml)
+# =============================================================================
+$schema: "http://json-schema.org/draft-07/schema#"
+type: object
+required: ["llm", "telegram"]
+properties:
+
+  # -------------------------------------------------------------------------
+  # llm — LLM-провайдеры и роутинг
+  # -------------------------------------------------------------------------
+  llm:
+    type: object
+    properties:
+      default_provider:
+        type: string
+        enum: ["gemini", "deepseek", "openrouter", "chatgpt", "local"]
+        default: "gemini"
+        description: "Провайдер LLM по умолчанию."
+
+      fallback_enabled:
+        type: boolean
+        default: true
+        description: "Включить fallback на резервного провайдера при ошибках 429/5xx."
+
+      fallback_critical_types:
+        type: array
+        items:
+          type: string
+        description: "Типы ответов, для которых разрешён fallback (критические пути)."
+
+      fallback_provider_order:
+        type: array
+        items:
+          type: string
+        description: "Порядок провайдеров для fallback (по убыванию приоритета)."
+
+      circuit_breaker:
+        type: object
+        description: "Circuit Breaker: защита от каскадных отказов."
+        properties:
+          max_failures:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 5
+            description: "Максимальное число последовательных ошибок до размыкания."
+          cooldown_seconds:
+            type: integer
+            minimum: 1
+            maximum: 3600
+            default: 60
+            description: "Время остывания (сек) перед попыткой восстановления."
+        required: ["max_failures", "cooldown_seconds"]
+
+      providers:
+        type: object
+        description: "Конфигурация каждого LLM-провайдера."
+        additionalProperties:
+          type: object
+          properties:
+            enabled:
+              type: boolean
+              description: "Включён ли провайдер."
+            api_key:
+              type: string
+              description: "Основной API-ключ."
+            reserve_api_key:
+              type: string
+              description: "Резервный API-ключ для ротации."
+            key_rotation_hours:
+              type: integer
+              minimum: 0
+              default: 0
+              description: "Интервал ротации ключей (часы). 0 — ротация отключена."
+            base_url:
+              type: string
+              description: "Базовый URL API."
+            site_url:
+              type: string
+              description: "HTTP-Referer (для OpenRouter)."
+            site_title:
+              type: string
+              description: "X-Title (для OpenRouter)."
+            debug:
+              type: boolean
+              default: false
+              description: "Режим отладки для провайдера."
+            safety:
+              type: object
+              description: "Настройки безопасности (Gemini-specific)."
+              properties:
+                bypass_filters:
+                  type: boolean
+                  default: false
+                  description: "Отключать встроенные фильтры безопасности Gemini."
+                obfuscate:
+                  type: boolean
+                  default: false
+                  description: "Применять обфускацию промптов для обхода фильтров."
+            models:
+              type: object
+              description: "Модели для разных capabilities."
+              properties:
+                text:
+                  type: string
+                  description: "Основная текстовая модель."
+                audio:
+                  type: string
+                  description: "Модель для аудиотранскрибации."
+                embed:
+                  type: string
+                  description: "Модель для эмбеддингов."
+                image:
+                  type: string
+                  description: "Модель для анализа изображений."
+                image_gen:
+                  type: string
+                  description: "Модель для генерации изображений."
+                tts:
+                  type: string
+                  description: "Модель для TTS."
+              additionalProperties:
+                type: string
+            temperatures:
+              type: object
+              description: "Температуры для разных режимов."
+              properties:
+                normal:
+                  type: number
+                  minimum: 0.0
+                  maximum: 2.0
+                  description: "Обычный режим."
+                serious:
+                  type: number
+                  minimum: 0.0
+                  maximum: 2.0
+                  description: "Серьёзный режим."
+              additionalProperties:
+                type: number
+            extra:
+              type: object
+              description: "Дополнительные параметры."
+          additionalProperties: false
+
+      response_types:
+        type: object
+        description: "Маршрутизация «ResponseType → (Provider, Model, Temperature)»."
+        additionalProperties:
+          type: object
+          properties:
+            provider:
+              type: string
+              description: "Провайдер."
+            model:
+              type: string
+              description: "Модель (переопределяет models.text провайдера)."
+            temperature:
+              type: number
+              minimum: 0.0
+              maximum: 2.0
+              default: 1.0
+              description: "Температура [0.0, 2.0]."
+            fallback_provider:
+              type: string
+              description: "Резервный провайдер при отказе основного."
+            priority:
+              type: integer
+              default: 0
+              description: "Приоритет (чем меньше, тем выше)."
+          required: ["provider", "temperature", "priority"]
+
+      image_analysis:
+        type: object
+        description: "Настройки анализа изображений (старый Config)."
+        properties:
+          enabled:
+            type: boolean
+            default: false
+            description: "Включён ли анализ фотографий (через LLM)."
+
+    required: ["default_provider", "circuit_breaker", "providers", "response_types"]
+
+  # -------------------------------------------------------------------------
+  # tts — Text-to-Speech
+  # -------------------------------------------------------------------------
+  tts:
+    type: object
+    properties:
+      provider:
+        type: string
+        enum: ["elevenlabs", "gemini_tts"]
+        default: "elevenlabs"
+        description: "Основной TTS-провайдер."
+      fallback:
+        type: string
+        default: "gemini_tts"
+        description: "Резервный TTS-провайдер."
+      elevenlabs:
+        type: object
+        description: "ElevenLabs TTS."
+        properties:
+          api_key:
+            type: string
+            description: "API-ключ ElevenLabs."
+          voice_id:
+            type: string
+            default: "Obuyk6KKzg9olSLPaCbl"
+            description: "Voice ID."
+          model:
+            type: string
+            default: "eleven_multilingual_v2"
+            description: "Модель TTS."
+          plan:
+            type: string
+            enum: ["free", "starter", "creator", "pro"]
+            default: "starter"
+            description: "Тарифный план."
+          random_voice:
+            type: boolean
+            default: false
+            description: "Случайный выбор голоса."
+          voice_settings:
+            type: object
+            description: "Расширенные настройки голоса."
+            properties:
+              stability:
+                type: number
+                minimum: 0.0
+                maximum: 1.0
+                default: 0.5
+                description: "Стабильность голоса [0.0, 1.0]."
+              similarity_boost:
+                type: number
+                minimum: 0.0
+                maximum: 1.0
+                default: 0.8
+                description: "Усиление сходства [0.0, 1.0]."
+              style:
+                type: number
+                minimum: 0.0
+                maximum: 1.0
+                default: 0.0
+                description: "Стиль речи [0.0, 1.0]."
+              use_speaker_boost:
+                type: boolean
+                default: true
+                description: "Улучшение голоса спикера."
+              speed:
+                type: number
+                minimum: 0.7
+                maximum: 1.2
+                default: 1.0
+                description: "Скорость речи [0.7, 1.2]."
+            required: ["stability", "similarity_boost", "speed"]
+          prompts:
+            type: object
+            description: "Промпты для управления стилем голоса."
+            properties:
+              style:
+                type: string
+                description: "Промпт стиля речи."
+              emotion:
+                type: string
+                description: "Промпт эмоциональной окраски."
+              pace:
+                type: string
+                description: "Промпт темпа речи."
+        required: ["api_key", "voice_id"]
+      gemini_tts:
+        type: object
+        description: "Gemini TTS (резервный TTS)."
+        properties:
+          model:
+            type: string
+            default: "gemini-2.5-flash-preview-tts"
+            description: "Модель Gemini TTS."
+          voice_name:
+            type: string
+            default: "Zephyr"
+            description: "Имя голоса."
+        required: ["model"]
+    required: ["provider"]
+
+  # -------------------------------------------------------------------------
+  # telegram — Telegram Bot API
+  # -------------------------------------------------------------------------
+  telegram:
+    type: object
+    required: ["token"]
+    properties:
+      token:
+        type: string
+        description: "Токен Telegram бота."
+      bot_user_id:
+        type: integer
+        default: 0
+        description: "User ID бота."
+      bot_names:
+        type: array
+        items:
+          type: string
+        description: "Список имён, на которые бот реагирует."
+      admin_ids:
+        type: array
+        items:
+          type: integer
+        description: "Список ID администраторов."
+      admin_usernames:
+        type: array
+        items:
+          type: string
+        description: "Список Telegram-username администраторов."
+      debug:
+        type: boolean
+        default: false
+        description: "Режим отладки."
+      timezone:
+        type: string
+        default: "Asia/Yekaterinburg"
+        description: "Часовой пояс (IANA timezone)."
+      error_message_auto_delete_seconds:
+        type: integer
+        minimum: 0
+        default: 5
+        description: "Время автоудаления сообщений об ошибках (сек)."
+      use_structured_message_format:
+        type: boolean
+        default: true
+        description: "Использовать структурированный формат сообщений [MSG_START]/[MSG_END]."
+
+  # -------------------------------------------------------------------------
+  # chat — настройки контекста чата
+  # -------------------------------------------------------------------------
+  chat:
+    type: object
+    properties:
+      min_messages:
+        type: integer
+        minimum: 1
+        default: 10
+        description: "Минимальное количество сообщений для ответа бота."
+      max_messages:
+        type: integer
+        minimum: 1
+        default: 50
+        description: "Максимальное количество сообщений для контекста ответа."
+      context_window:
+        type: integer
+        minimum: 1
+        default: 300
+        description: "Размер контекстного окна."
+      image_generation_context_window:
+        type: integer
+        minimum: 1
+        default: 50
+        description: "Размер контекстного окна для генерации изображений."
+
+  # -------------------------------------------------------------------------
+  # summary — настройки саммари
+  # -------------------------------------------------------------------------
+  summary:
+    type: object
+    properties:
+      interval_hours:
+        type: integer
+        minimum: 0
+        default: 0
+        description: "Интервал суточного саммари в часах (0 — выключено)."
+      max_parts:
+        type: integer
+        minimum: 1
+        default: 5
+        description: "Максимальное количество частей."
+      weekly:
+        type: object
+        properties:
+          enabled:
+            type: boolean
+            default: false
+            description: "Включено ли еженедельное саммари."
+          day:
+            type: integer
+            minimum: 0
+            maximum: 6
+            default: 0
+            description: "День недели (0=Вс, 6=Сб)."
+          hour:
+            type: integer
+            minimum: 0
+            maximum: 23
+            default: 18
+            description: "Час отправки (0-23)."
+          minute:
+            type: integer
+            minimum: 0
+            maximum: 59
+            default: 0
+            description: "Минута отправки (0-59)."
+          max_parts:
+            type: integer
+            minimum: 1
+            default: 5
+            description: "Максимальное количество частей."
+          search_method:
+            type: string
+            enum: ["flags", "keywords", "both"]
+            default: "both"
+            description: "Метод поиска сообщений для саммари."
+          flags_enabled:
+            type: boolean
+            default: true
+            description: "Поиск по флагам в БД."
+          keywords_enabled:
+            type: boolean
+            default: true
+            description: "Поиск по ключевым словам."
+
+  # -------------------------------------------------------------------------
+  # rate_limit — настройки лимита запросов
+  # -------------------------------------------------------------------------
+  rate_limit:
+    type: object
+    properties:
+      static_text:
+        type: string
+        default: "Превышен лимит запросов. Попробуй позже."
+        description: "Статический текст для сообщения о превышении лимита."
+
+  # -------------------------------------------------------------------------
+  # settings_prompts — UI-тексты для ввода настроек
+  # -------------------------------------------------------------------------
+  settings_prompts:
+    type: object
+    properties:
+      enter_min_messages:
+        type: string
+        description: "Prompt: ввод минимального количества сообщений."
+      enter_max_messages:
+        type: string
+        description: "Prompt: ввод максимального количества сообщений."
+      enter_daily_time:
+        type: string
+        description: "Prompt: ввод часа ежедневной темы."
+      enter_summary_interval:
+        type: string
+        description: "Prompt: ввод интервала саммари."
+      enter_direct_limit_count:
+        type: string
+        description: "Prompt: ввод лимита прямых обращений."
+      enter_direct_limit_duration:
+        type: string
+        description: "Prompt: ввод длительности периода лимита."
+
+  # -------------------------------------------------------------------------
+  # srach — настройки детекции споров
+  # -------------------------------------------------------------------------
+  srach:
+    type: object
+    properties:
+      keywords:
+        type: array
+        items:
+          type: string
+        description: "Ключевые слова для детекции спора."
+      analysis_enabled:
+        type: boolean
+        default: true
+        description: "Включён ли анализ споров."
+
+  # -------------------------------------------------------------------------
+  # direct_reply_limits — лимиты прямых обращений
+  # -------------------------------------------------------------------------
+  direct_reply_limits:
+    type: object
+    properties:
+      enabled_default:
+        type: boolean
+        default: false
+        description: "Включены ли лимиты по умолчанию."
+      count_default:
+        type: integer
+        minimum: 1
+        default: 3
+        description: "Количество обращений по умолчанию."
+      duration_minutes_default:
+        type: integer
+        minimum: 1
+        default: 60
+        description: "Длительность периода лимита (минуты)."
+
+  # -------------------------------------------------------------------------
+  # donate — настройки донатов
+  # -------------------------------------------------------------------------
+  donate:
+    type: object
+    properties:
+      time_hours:
+        type: integer
+        minimum: 1
+        default: 24
+        description: "Интервал отправки сообщений о донатах (часы)."
+      payment_reminder_interval_hours:
+        type: integer
+        minimum: 1
+        default: 6
+        description: "Интервал напоминаний о платеже (часы)."
+
+  # -------------------------------------------------------------------------
+  # free_will — автономное поведение бота
+  # -------------------------------------------------------------------------
+  free_will:
+    type: object
+    properties:
+      enabled:
+        type: boolean
+        default: false
+        description: "Включён ли Free Will."
+      intervals:
+        type: object
+        properties:
+          min_minutes:
+            type: number
+            minimum: 0.0
+            default: 15.0
+            description: "Минимальный интервал (минуты)."
+          max_minutes:
+            type: number
+            minimum: 0.0
+            default: 60.0
+            description: "Максимальный интервал (минуты)."
+        required: ["min_minutes", "max_minutes"]
+      context_window:
+        type: integer
+        minimum: 1
+        default: 50
+        description: "Размер контекстного окна."
+      mood_update_probability:
+        type: number
+        minimum: 0.0
+        maximum: 1.0
+        default: 0.1
+        description: "Вероятность обновления настроения."
+      max_decisions_per_hour:
+        type: integer
+        minimum: 1
+        default: 10
+        description: "Максимальное количество решений в час."
+      voice_probability:
+        type: number
+        minimum: 0.0
+        maximum: 1.0
+        default: 0.3
+        description: "Вероятность выбора голосового сообщения."
+      silence:
+        type: object
+        description: "Настройки реакции на тишину."
+        properties:
+          min_minutes:
+            type: number
+            minimum: 0.0
+            default: 3.0
+            description: "Минимальное время тишины для реакции."
+          max_minutes:
+            type: number
+            minimum: 0.0
+            default: 20.0
+            description: "Максимальное время тишины для реакции."
+      reactions:
+        type: object
+        description: "Настройки реакций Free Will."
+        properties:
+          enabled:
+            type: boolean
+            default: true
+            description: "Включены ли реакции."
+          probability:
+            type: number
+            minimum: 0.0
+            maximum: 1.0
+            default: 0.2
+            description: "Вероятность реакции."
+          cooldown_minutes:
+            type: integer
+            minimum: 0
+            default: 5
+            description: "Cooldown между реакциями (минуты)."
+          max_per_hour:
+            type: integer
+            minimum: 1
+            default: 15
+            description: "Максимум реакций в час."
+      direct_response:
+        type: object
+        description: "Настройки прямых ответов."
+        properties:
+          max_per_hour:
+            type: integer
+            minimum: 1
+            default: 30
+            description: "Максимум прямых ответов в час."
+          min_interval_seconds:
+            type: number
+            minimum: 0.0
+            default: 5.0
+            description: "Минимальный интервал между прямыми ответами (сек)."
+          independent_limits:
+            type: boolean
+            default: true
+            description: "Независимые лимиты."
+      image_generation:
+        type: object
+        description: "Настройки генерации изображений."
+        properties:
+          max_per_interval:
+            type: integer
+            minimum: 1
+            default: 3
+            description: "Максимум решений за интервал."
+          interval_hours:
+            type: integer
+            minimum: 1
+            default: 6
+            description: "Интервал сброса лимита (часы)."
+          min_decision_interval_minutes:
+            type: integer
+            minimum: 1
+            default: 30
+            description: "Минимальный интервал между решениями (минуты)."
+          independent_limits:
+            type: boolean
+            default: true
+            description: "Независимые лимиты."
+          frequency_hours:
+            type: integer
+            minimum: 1
+            default: 12
+            description: "Частота генерации (часы)."
+      interval_messages:
+        type: object
+        properties:
+          enabled:
+            type: boolean
+            default: true
+            description: "Включён ли старый механизм интервальных сообщений."
+
+  # -------------------------------------------------------------------------
+  # voice_messages — голосовые сообщения
+  # -------------------------------------------------------------------------
+  voice_messages:
+    type: object
+    properties:
+      enabled:
+        type: boolean
+        default: true
+        description: "Включены ли голосовые сообщения."
+      interval:
+        type: object
+        properties:
+          min:
+            type: integer
+            minimum: 1
+            default: 50
+            description: "Минимальный интервал."
+          max:
+            type: integer
+            minimum: 1
+            default: 100
+            description: "Максимальный интервал."
+        required: ["min", "max"]
+      temp_dir:
+        type: string
+        default: "/tmp/voice_messages"
+        description: "Директория для временных файлов."
+
+  # -------------------------------------------------------------------------
+  # moderation — модерация
+  # -------------------------------------------------------------------------
+  moderation:
+    type: object
+    properties:
+      enabled:
+        type: boolean
+        default: false
+        description: "Глобальное включение модерации."
+      interval_minutes:
+        type: integer
+        minimum: 1
+        default: 1
+        description: "Интервал проверки сообщений (сек)."
+      mute_time_minutes:
+        type: integer
+        minimum: 0
+        default: 5
+        description: "Время мута по умолчанию (минуты, 0 = навсегда)."
+      kick_time_minutes:
+        type: integer
+        minimum: 0
+        default: 1
+        description: "Время кика по умолчанию (минуты, 0 = перманентный)."
+      ban_time_minutes:
+        type: integer
+        minimum: 0
+        default: 60
+        description: "Время бана по умолчанию (минуты, 0 = перманентный)."
+      purge_window_duration:
+        type: string
+        default: "1h"
+        description: "Окно для purge."
+      purge_delay_duration:
+        type: string
+        default: "0s"
+        description: "Задержка перед purge."
+      check_admin_rights:
+        type: boolean
+        default: true
+        description: "Проверять права администратора."
+      default_notify:
+        type: boolean
+        default: false
+        description: "Уведомлять по умолчанию."
+      rules:
+        type: array
+        items:
+          type: object
+          properties:
+            rule_name:
+              type: string
+              description: "Имя правила."
+            chat_id:
+              type: string
+              description: "ID чата ('none' для всех)."
+            user_id:
+              type: string
+              description: "ID пользователя ('none' для всех)."
+            keywords:
+              type: array
+              items:
+                type: string
+              description: "Ключевые слова."
+            llm_instruction:
+              type: string
+              description: "Инструкция для LLM."
+            punishment:
+              type: string
+              enum: ["mute", "kick", "ban", "purge", "none", "edit"]
+              description: "Тип наказания."
+            notify_user:
+              type: boolean
+              default: false
+            notify_chat:
+              type: boolean
+              default: false
+            punishment_note:
+              type: string
+            replacement_text:
+              type: string
+              description: "Текст для замены при PunishEdit."
+          required: ["rule_name", "keywords", "punishment"]
+
+  # -------------------------------------------------------------------------
+  # anti_repetition — анти-повторения
+  # -------------------------------------------------------------------------
+  anti_repetition:
+    type: object
+    properties:
+      enabled:
+        type: boolean
+        default: true
+        description: "Включена ли система."
+      max_responses_per_chat:
+        type: integer
+        minimum: 1
+        default: 20
+        description: "Макс. сохранённых ответов на чат."
+      similarity_threshold:
+        type: number
+        minimum: 0.0
+        maximum: 1.0
+        default: 0.75
+        description: "Порог схожести [0.0, 1.0]."
+      time_window_hours:
+        type: integer
+        minimum: 1
+        default: 24
+        description: "Окно времени для проверки (часы)."
+      cleanup_interval_hours:
+        type: integer
+        minimum: 1
+        default: 1
+        description: "Интервал очистки (часы)."
+      rework:
+        type: object
+        description: "Настройки переработки повторений."
+        properties:
+          enabled:
+            type: boolean
+            default: true
+            description: "Включена ли переработка."
+          max_attempts:
+            type: integer
+            minimum: 1
+            default: 2
+            description: "Максимальное количество попыток."
+          temperature:
+            type: number
+            minimum: 0.0
+            maximum: 2.0
+            default: 0.8
+            description: "Температура."
+          local_rework:
+            type: object
+            properties:
+              enabled:
+                type: boolean
+                default: true
+              max_length:
+                type: integer
+                minimum: 1
+                default: 50
+                description: "Макс. длина для локальной переработки."
+
+  # -------------------------------------------------------------------------
+  # disambiguation — дисамбигуация
+  # -------------------------------------------------------------------------
+  disambiguation:
+    type: object
+    properties:
+      enabled:
+        type: boolean
+        default: true
+        description: "Включена ли система дисамбигуации."
+
+  # -------------------------------------------------------------------------
+  # message_post_processor — постобработка сообщений
+  # -------------------------------------------------------------------------
+  message_post_processor:
+    type: object
+    properties:
+      enabled:
+        type: boolean
+        default: true
+        description: "Включён ли постпроцессор."
+      randomization_enabled:
+        type: boolean
+        default: true
+        description: "Включена ли рандомизация."
+      probabilities:
+        type: object
+        properties:
+          single_word:
+            type: number
+            minimum: 0.0
+            maximum: 1.0
+            default: 0.20
+          short_sentences:
+            type: number
+            minimum: 0.0
+            maximum: 1.0
+            default: 0.35
+          long_messages:
+            type: number
+            minimum: 0.0
+            maximum: 1.0
+            default: 0.25
+      length:
+        type: object
+        properties:
+          min:
+            type: integer
+            minimum: 1
+            default: 10
+          max:
+            type: integer
+            minimum: 1
+            default: 2000
+          long_message_threshold:
+            type: integer
+            minimum: 1
+            default: 100
+          force_long_processing_threshold:
+            type: integer
+            minimum: 1
+            default: 200
+      performance:
+        type: object
+        properties:
+          timeout_seconds:
+            type: integer
+            minimum: 1
+            default: 15
+          temperature:
+            type: number
+            minimum: 0.0
+            maximum: 2.0
+            default: 0.9
+      cache:
+        type: object
+        properties:
+          enabled:
+            type: boolean
+            default: true
+          ttl_minutes:
+            type: integer
+            minimum: 1
+            default: 30
+          replacement_cache:
+            type: object
+            properties:
+              enabled:
+                type: boolean
+                default: true
+              ttl_minutes:
+                type: integer
+                minimum: 1
+                default: 10
+      exclude_types:
+        type: array
+        items:
+          type: string
+        description: "Типы ответов, исключённые из постобработки."
+      weekly_summary_exclude:
+        type: boolean
+        default: true
+      debug:
+        type: object
+        properties:
+          logging:
+            type: boolean
+            default: false
+          log_original_messages:
+            type: boolean
+            default: false
+
+  # -------------------------------------------------------------------------
+  # auto_bio — автоматический анализ профилей
+  # -------------------------------------------------------------------------
+  auto_bio:
+    type: object
+    properties:
+      enabled:
+        type: boolean
+        default: false
+      interval_hours:
+        type: integer
+        minimum: 1
+        default: 24
+      lookback_days:
+        type: integer
+        minimum: 1
+        default: 30
+      min_messages_for_analysis:
+        type: integer
+        minimum: 0
+        default: 10
+      max_messages_for_analysis:
+        type: integer
+        minimum: 1
+        default: 1000
+
+  # -------------------------------------------------------------------------
+  # personality — память личности
+  # -------------------------------------------------------------------------
+  personality:
+    type: object
+    properties:
+      update_interval_hours:
+        type: integer
+        minimum: 1
+        default: 1
+      messages_lookback:
+        type: integer
+        minimum: 1
+        default: 50
+      max_name_mentions:
+        type: integer
+        minimum: 1
+        default: 10
+      max_recent_topics:
+        type: integer
+        minimum: 1
+        default: 10
+      max_self_perceptions:
+        type: integer
+        minimum: 1
+        default: 5
+      max_discussion_contexts:
+        type: integer
+        minimum: 1
+        default: 3
+
+  # -------------------------------------------------------------------------
+  # reactions — реакции
+  # -------------------------------------------------------------------------
+  reactions:
+    type: object
+    properties:
+      enabled:
+        type: boolean
+        default: true
+      clown:
+        type: object
+        properties:
+          response_probability:
+            type: integer
+            minimum: 0
+            maximum: 100
+            default: 40
+          cooldown_seconds:
+            type: integer
+            minimum: 0
+            default: 30
+          max_responses_per_hour:
+            type: integer
+            minimum: 1
+            default: 10
+
+  # -------------------------------------------------------------------------
+  # web_search — веб-поиск
+  # -------------------------------------------------------------------------
+  web_search:
+    type: object
+    properties:
+      enabled:
+        type: boolean
+        default: true
+      google_api_key:
+        type: string
+        description: "API-ключ Google Custom Search."
+      search_engine_id:
+        type: string
+        description: "Search Engine ID (Google CSE)."
+      max_results:
+        type: integer
+        minimum: 1
+        default: 3
+      cache:
+        type: object
+        properties:
+          ttl:
+            type: string
+            default: "5m"
+            description: "Время жизни кэша."
+          max_size:
+            type: integer
+            minimum: 1
+            default: 100
+            description: "Максимальный размер кэша."
+
+  # -------------------------------------------------------------------------
+  # causal_learning — каузальное обучение
+  # -------------------------------------------------------------------------
+  causal_learning:
+    type: object
+    properties:
+      enabled:
+        type: boolean
+        default: false
+      analysis_interval_hours:
+        type: integer
+        minimum: 1
+        default: 4
+      min_confidence:
+        type: number
+        minimum: 0.0
+        maximum: 1.0
+        default: 0.3
+      temporal_window_minutes:
+        type: integer
+        minimum: 1
+        default: 60
+      max_entries_per_chat:
+        type: integer
+        minimum: 1
+        default: 500
+      analysis_lookback_messages:
+        type: integer
+        minimum: 1
+        default: 100
+
+  # -------------------------------------------------------------------------
+  # emotional_learning — эмоциональная система
+  # -------------------------------------------------------------------------
+  emotional_learning:
+    type: object
+    properties:
+      enabled:
+        type: boolean
+        default: true
+      analysis_interval_hours:
+        type: integer
+        minimum: 1
+        default: 2
+      analysis_lookback_messages:
+        type: integer
+        minimum: 1
+        default: 100
+      memory_retention_days:
+        type: integer
+        minimum: 1
+        default: 30
+
+  # -------------------------------------------------------------------------
+  # belief_learning — система убеждений
+  # -------------------------------------------------------------------------
+  belief_learning:
+    type: object
+    properties:
+      enabled:
+        type: boolean
+        default: false
+      analysis_interval_hours:
+        type: integer
+        minimum: 1
+        default: 6
+      analysis_lookback_messages:
+        type: integer
+        minimum: 1
+        default: 150
+
+  # -------------------------------------------------------------------------
+  # cognitive_architecture — когнитивная архитектура
+  # -------------------------------------------------------------------------
+  cognitive_architecture:
+    type: object
+    properties:
+      internal_monologue:
+        type: object
+        properties:
+          enabled:
+            type: boolean
+            default: false
+          temperature:
+            type: number
+            minimum: 0.0
+            maximum: 2.0
+            default: 0.4
+      self_reflection:
+        type: object
+        properties:
+          enabled:
+            type: boolean
+            default: false
+          temperature:
+            type: number
+            minimum: 0.0
+            maximum: 2.0
+            default: 0.5
+      confidence_calibration:
+        type: object
+        properties:
+          enabled:
+            type: boolean
+            default: false
+
+  # -------------------------------------------------------------------------
+  # social_architecture — социальная архитектура
+  # -------------------------------------------------------------------------
+  social_architecture:
+    type: object
+    properties:
+      relationship_tracking:
+        type: object
+        properties:
+          enabled:
+            type: boolean
+            default: false
+      social_learning:
+        type: object
+        properties:
+          enabled:
+            type: boolean
+            default: false
+      intimacy_growth_rate:
+        type: number
+        minimum: 0.0
+        maximum: 1.0
+        default: 0.02
+      trust_decay_rate:
+        type: number
+        minimum: 0.0
+        maximum: 1.0
+        default: 0.01
+
+  # -------------------------------------------------------------------------
+  # association_cloud — ассоциативное облако
+  # -------------------------------------------------------------------------
+  association_cloud:
+    type: object
+    properties:
+      enabled:
+        type: boolean
+        default: false
+      max_nodes:
+        type: integer
+        minimum: 1
+        default: 5000
+      max_edges:
+        type: integer
+        minimum: 1
+        default: 50000
+      decay_days:
+        type: integer
+        minimum: 1
+        default: 30
+
+  # -------------------------------------------------------------------------
+  # storage — хранилище
+  # -------------------------------------------------------------------------
+  storage:
+    type: object
+    properties:
+      type:
+        type: string
+        enum: ["file", "postgres", "mongo"]
+        default: "postgres"
+        description: "Тип хранилища."
+      postgresql:
+        type: object
+        properties:
+          host:
+            type: string
+            default: "localhost"
+          port:
+            type: integer
+            minimum: 1
+            maximum: 65535
+            default: 5432
+          user:
+            type: string
+            default: "postgres"
+          password:
+            type: string
+            description: "Пароль."
+          dbname:
+            type: string
+            default: "luna_bot"
+      mongodb:
+        type: object
+        properties:
+          uri:
+            type: string
+            description: "Строка подключения."
+          dbname:
+            type: string
+            default: "luna_bot"
+          messages_collection:
+            type: string
+            default: "chat_messages"
+          user_profiles_collection:
+            type: string
+            default: "user_profiles"
+          settings_collection:
+            type: string
+            default: "settings"
+          vector_index_name:
+            type: string
+            default: "vector_index"
+      long_term_memory:
+        type: object
+        properties:
+          enabled:
+            type: boolean
+            default: false
+          embedding_model:
+            type: string
+            default: "embedding-001"
+          fetch_k:
+            type: integer
+            minimum: 1
+            default: 5
+          backfill:
+            type: object
+            properties:
+              batch_size:
+                type: integer
+                minimum: 1
+                default: 100
+              batch_delay:
+                type: string
+                default: "1s"
+      cleanup:
+        type: object
+        properties:
+          enabled:
+            type: boolean
+            default: false
+          size_limit_mb:
+            type: integer
+            minimum: 1
+            default: 450
+          interval_minutes:
+            type: integer
+            minimum: 1
+            default: 60
+          chunk_duration_hours:
+            type: integer
+            minimum: 1
+            default: 24
+
+  # -------------------------------------------------------------------------
+  # embedding — эмбеддинги и миграция
+  # -------------------------------------------------------------------------
+  embedding:
+    type: object
+    properties:
+      requests_per_minute:
+        type: integer
+        default: 240
+      requests_per_day:
+        type: integer
+        default: 24000
+      batch_size:
+        type: integer
+        minimum: 1
+        default: 100
+      request_delay:
+        type: string
+        default: "0.3s"
+      batch_delay:
+        type: string
+        default: "60s"
+      adaptive_throttling:
+        type: boolean
+        default: true
+      safety_margin:
+        type: number
+        minimum: 0.0
+        maximum: 1.0
+        default: 0.8
+      max_retries:
+        type: integer
+        minimum: 1
+        default: 3
+      cache:
+        type: object
+        properties:
+          enabled:
+            type: boolean
+            default: true
+          dir:
+            type: string
+            default: "./cache/embeddings"
+      migration:
+        type: object
+        properties:
+          resume_enabled:
+            type: boolean
+            default: true
+          state_file:
+            type: string
+            default: "./migration_state.json"
+
+  # -------------------------------------------------------------------------
+  # prompts — промпты
+  # -------------------------------------------------------------------------
+  prompts:
+    type: object
+    properties:
+      source:
+        type: string
+        enum: ["files", "inline", "both"]
+        default: "files"
+        description: "Источник промптов."
+      files:
+        type: object
+        description: "Пути к .txt файлам промптов."
+        additionalProperties:
+          type: string
+      inline:
+        type: object
+        description: "Инлайн-промпты (приоритет над файлами при source='both')."
+        additionalProperties:
+          type: string

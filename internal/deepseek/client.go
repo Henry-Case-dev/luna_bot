@@ -12,12 +12,8 @@ import (
 	openai "github.com/sashabaranov/go-openai"
 )
 
-// markdownInstructions содержит инструкции по форматированию Markdown для LLM.
-// Обновлено для стандартного Markdown (не V2).
-const markdownInstructions = `\n\nИнструкции по форматированию ответа (Стандартный Markdown):\n- Используй *жирный текст* для выделения важных слов или фраз (одинарные звездочки).\n- Используй _курсив_ для акцентов или названий (одинарные подчеркивания).\n- Используй 'моноширинный текст' для кода, команд или технических терминов (одинарные кавычки).\n- НЕ используй зачеркивание (~~текст~~).\n- НЕ используй спойлеры (||текст||).\n- НЕ используй подчеркивание (__текст__).\n- Ссылки оформляй как [текст ссылки](URL).\n- Блоки кода оформляй тремя обратными кавычками:\n'''\nкод\n'''\nили\n'''go\nкод\n'''\n- Нумерованные списки начинай с \"1. \", \"2. \" и т.д.\n- Маркированные списки начинай с \"- \" или \"* \".\n- Для цитат используй \"> \".\n- Не нужно экранировать символы вроде '.', '-', '!', '(', ')', '+', '#'. Стандартный Markdown менее строгий.\n- Используй ТОЛЬКО указанный Markdown. Не используй HTML.\n`
-
-// Убедимся, что Client реализует интерфейс llm.LLMClient
-var _ llm.LLMClient = (*Client)(nil)
+var _ llm.TextGenerator = (*Client)(nil)
+var _ llm.Closer = (*Client)(nil)
 
 // Client для взаимодействия с DeepSeek API (через OpenAI совместимый интерфейс)
 type Client struct {
@@ -278,3 +274,28 @@ func (c *Client) GenerateImageWithEdit(ctx context.Context, baseImageData []byte
 	}
 	return nil, errors.New("DeepSeek не поддерживает генерацию изображений")
 }
+
+// GenerateAudio — заглушка для AudioGenerator. DeepSeek не поддерживает TTS.
+// Будет удалена в CLN-03 после полного перехода на capability-интерфейсы.
+func (c *Client) GenerateAudio(text string, params llm.AudioParams) ([]byte, error) {
+	if c.debug {
+		log.Printf("[DEBUG] DeepSeek не поддерживает аудиогенерацию.")
+	}
+	return nil, errors.New("DeepSeek не поддерживает аудиогенерацию")
+}
+
+// Info возвращает метаинформацию о провайдере DeepSeek.
+func (c *Client) Info() llm.ProviderInfo {
+	return llm.ProviderInfo{
+		Name: "deepseek",
+		Capabilities: []llm.Capability{
+			llm.CapTextGeneration,
+		},
+	}
+}
+
+// Compile-time interface satisfaction checks for DeepSeek.
+var (
+	_ llm.TextGenerator = (*Client)(nil)
+	_ llm.Closer        = (*Client)(nil)
+)

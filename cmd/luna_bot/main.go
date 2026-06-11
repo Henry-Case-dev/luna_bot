@@ -1,14 +1,22 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"time"
 
+	"github.com/Henry-Case-dev/luna_bot/internal/anthropic"
 	"github.com/Henry-Case-dev/luna_bot/internal/bot"
 	"github.com/Henry-Case-dev/luna_bot/internal/config"
+	"github.com/Henry-Case-dev/luna_bot/internal/deepseek"
+	"github.com/Henry-Case-dev/luna_bot/internal/gemini"
+	"github.com/Henry-Case-dev/luna_bot/internal/llm"
+	"github.com/Henry-Case-dev/luna_bot/internal/local"
+	"github.com/Henry-Case-dev/luna_bot/internal/openai"
+	"github.com/Henry-Case-dev/luna_bot/internal/openrouter"
 	"github.com/joho/godotenv"
 )
 
@@ -85,9 +93,38 @@ func main() {
 		time.Sleep(15 * time.Second)
 		panic(fmt.Sprintf("Configuration error: %v", err))
 	}
-	log.Println("--- Configuration Loaded ---")
+	log.Println("--- Legacy Configuration Loaded ---")
 
-	botInstance, err := bot.New(cfg)
+	// YAML — единственный источник конфигурации.
+	// .env используется ТОЛЬКО для ${ENV_VAR} резолва секретов (TELEGRAM_TOKEN, API_KEY и т.д.)
+	source := config.NewYAMLConfigSource("configs/luna_bot.yaml")
+	cfgV2, err := source.Load(context.Background())
+	if err != nil {
+		log.Fatalf("[FATAL] Ошибка загрузки luna_bot.yaml: %v", err)
+	}
+	log.Println("[INFO] Конфигурация загружена из luna_bot.yaml (секреты из .env)")
+
+	// cfgV2 теперь содержит конфигурацию для нового роутера
+	_ = cfgV2
+
+	// Инициализация ProviderRegistry (новая архитектура LLM)
+	registry := llm.NewProviderRegistry()
+
+	// Регистрация фабрик провайдеров
+	registry.Register("gemini", gemini.NewProvider)
+	registry.Register("deepseek", deepseek.NewProvider)
+	registry.Register("openrouter", openrouter.NewProvider)
+	registry.Register("local", local.NewProvider)
+	registry.Register("anthropic", anthropic.NewProvider)
+	registry.Register("openai", openai.NewProvider)
+	// ElevenLabs не регистрируется как LLM-провайдер (отдельный сервис)
+
+	// Создаём LLMRouterV2 (основной роутер)
+	routerV2 := bot.NewLLMRouterV2(registry, cfgV2, cfg.Debug)
+	log.Println("[INFO] LLMRouterV2 инициализирован с", len(registry.FindByCapability(llm.CapTextGeneration)), "TextGenerator-провайдерами")
+
+	// Передаём V2 роутер в конструктор бота
+	botInstance, err := bot.New(cfg, routerV2)
 	if err != nil {
 		log.Printf("!!! FATAL: Ошибка создания бота: %v", err)
 		time.Sleep(15 * time.Second)

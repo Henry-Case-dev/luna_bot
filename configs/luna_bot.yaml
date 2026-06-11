@@ -1,0 +1,1607 @@
+# =============================================================================
+# Luna Bot — YAML Configuration
+# =============================================================================
+# Основной файл конфигурации. Секреты (API-ключи) задаются через переменные
+# окружения с синтаксисом ${ENV_VAR} или через внешний secret-файл.
+# Переопределение через переменные окружения:
+#   LUNA_LLM__PROVIDERS__GEMINI__API_KEY=sk-xxx
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# llm — LLM-провайдеры и роутинг
+# -----------------------------------------------------------------------------
+llm:
+  # Основной провайдер по умолчанию (gemini | deepseek | openrouter)
+  # Тип: string, По умолчанию: "gemini"
+  default_provider: "gemini"
+
+  # Включить fallback на резервного провайдера при ошибках 429/5xx
+  # Тип: bool, По умолчанию: true
+  fallback_enabled: true
+
+  # Типы ответов, для которых разрешён fallback (критические пути)
+  # Тип: []string, По умолчанию: ["free_will_silence", "free_will_reaction"]
+  fallback_critical_types:
+    - "free_will_silence"
+    - "free_will_reaction"
+    - "free_will_direct"
+    - "free_will_general"
+    - "free_will_context"
+
+  # Порядок провайдеров для fallback (по убыванию приоритета)
+  # Тип: []string, По умолчанию: ["gemini", "deepseek", "openrouter"]
+  fallback_provider_order:
+    - "gemini"
+    - "deepseek"
+    - "openrouter"
+
+  # Circuit Breaker: защита от каскадных отказов
+  circuit_breaker:
+    # Максимальное число последовательных ошибок до размыкания
+    # Тип: int, По умолчанию: 5
+    max_failures: 5
+    # Время остывания (сек) перед попыткой восстановления
+    # Тип: int, По умолчанию: 60
+    cooldown_seconds: 60
+
+  # ------------------------------------------------------------------------
+  # providers — конфигурация каждого LLM-провайдера
+  # ------------------------------------------------------------------------
+  providers:
+    # --- Gemini ---
+    gemini:
+      # Включён ли провайдер
+      # Тип: bool, По умолчанию: true
+      enabled: true
+      # Основной API-ключ (из переменной окружения)
+      # Тип: string (secret)
+      api_key: "${GEMINI_API_KEY}"
+      # Резервный API-ключ для ротации
+      # Тип: string (secret)
+      reserve_api_key: "${GEMINI_API_KEY_RESERVE}"
+      # Интервал ротации ключей (часы)
+      # Тип: int, По умолчанию: 1
+      key_rotation_hours: 1
+      # Базовый URL API (пустая строка — стандартный)
+      # Тип: string, По умолчанию: ""
+      base_url: ""
+      # Настройки безопасности (Gemini-specific)
+      safety:
+        # Отключать встроенные фильтры безопасности Gemini
+        # Тип: bool, По умолчанию: true
+        bypass_filters: true
+        # Применять обфускацию промптов для обхода фильтров
+        # Тип: bool, По умолчанию: false
+        obfuscate: false
+      # Модели для разных capabilities
+      models:
+        # Основная текстовая модель
+        # Тип: string, По умолчанию: "gemini-2.0-flash"
+        text: "gemini-2.0-flash"
+        # Модель для аудиотранскрибации
+        # Тип: string, По умолчанию: "gemini-2.0-flash"
+        audio: "gemini-2.0-flash"
+        # Модель для эмбеддингов
+        # Тип: string, По умолчанию: "embedding-001"
+        embed: "embedding-001"
+        # Модель для анализа изображений
+        # Тип: string, По умолчанию: "gemini-2.0-flash"
+        image: "gemini-2.0-flash"
+        # Модель для генерации изображений
+        # Тип: string, По умолчанию: "gemini-2.5-flash-image-preview"
+        image_gen: "gemini-2.5-flash-image-preview"
+        # Модель для TTS (Gemini Text-to-Speech)
+        # Тип: string, По умолчанию: "gemini-2.5-flash-preview-tts"
+        tts: "gemini-2.5-flash-preview-tts"
+      # Температуры для разных режимов
+      temperatures:
+        # Обычный режим
+        # Тип: float64, По умолчанию: 1.0
+        normal: 1.0
+        # Серьёзный режим
+        # Тип: float64, По умолчанию: 0.9
+        serious: 0.9
+        # Температура для аудиотранскрибации
+        # Тип: float64, По умолчанию: 0.3
+        audio: 0.3
+        # Температура для генерации изображений
+        # Тип: float64, По умолчанию: 0.7
+        image: 0.7
+      # Режим отладки для провайдера
+      # Тип: bool, По умолчанию: false
+      debug: false
+      # Дополнительные параметры (произвольная карта)
+      extra: {}
+
+    # --- DeepSeek ---
+    deepseek:
+      # Тип: bool, По умолчанию: true
+      enabled: true
+      # Тип: string (secret)
+      api_key: "${DEEPSEEK_API_KEY}"
+      # Тип: string (secret)
+      reserve_api_key: ""
+      # Тип: int, По умолчанию: 0 (ротация отключена)
+      key_rotation_hours: 0
+      # Тип: string, По умолчанию: "https://api.deepseek.com/v1"
+      base_url: "https://api.deepseek.com/v1"
+      # Тип: string, По умолчанию: ""
+      site_url: ""
+      # Тип: string, По умолчанию: ""
+      site_title: ""
+      safety:
+        bypass_filters: false
+        obfuscate: false
+      models:
+        # Тип: string, По умолчанию: "deepseek-chat"
+        text: "deepseek-chat"
+      temperatures: {}
+      # Тип: bool, По умолчанию: false
+      debug: false
+      extra: {}
+
+    # --- OpenRouter ---
+    openrouter:
+      # Тип: bool, По умолчанию: true
+      enabled: true
+      # Тип: string (secret)
+      api_key: "${OPENROUTER_API_KEY}"
+      # Тип: string (secret)
+      reserve_api_key: ""
+      # Тип: int, По умолчанию: 0 (ротация отключена)
+      key_rotation_hours: 0
+      # Тип: string, По умолчанию: "https://openrouter.ai/api/v1"
+      base_url: "https://openrouter.ai/api/v1"
+      # HTTP-Referer для OpenRouter
+      # Тип: string, По умолчанию: ""
+      site_url: ""
+      # X-Title для OpenRouter
+      # Тип: string, По умолчанию: "Luna Bot"
+      site_title: "Luna Bot"
+      safety:
+        bypass_filters: false
+        obfuscate: false
+      models:
+        # Тип: string, По умолчанию: "deepseek/deepseek-chat-v3.1:free"
+        text: "deepseek/deepseek-chat-v3.1:free"
+      temperatures: {}
+      # Тип: bool, По умолчанию: false
+      debug: false
+      extra: {}
+
+    # --- ChatGPT / OpenAI (опционально) ---
+    chatgpt:
+      # Тип: bool, По умолчанию: false
+      enabled: false
+      # Тип: string (secret)
+      api_key: "${OPENAI_API_KEY}"
+      reserve_api_key: ""
+      key_rotation_hours: 0
+      base_url: "https://api.openai.com/v1"
+      site_url: ""
+      site_title: ""
+      safety:
+        bypass_filters: false
+        obfuscate: false
+      models:
+        # Тип: string, По умолчанию: "gpt-4o"
+        text: "gpt-4o"
+        # Тип: string, По умолчанию: "dall-e-3"
+        image_gen: "dall-e-3"
+      temperatures: {}
+      debug: false
+      extra: {}
+
+    # --- Локальные модели через OpenAI-совместимый API (Ollama / LM Studio) ---
+    local:
+      # Тип: bool, По умолчанию: false
+      enabled: false
+      api_key: ""
+      reserve_api_key: ""
+      key_rotation_hours: 0
+      # Тип: string, По умолчанию: "http://localhost:11434/v1"
+      base_url: "http://localhost:11434/v1"
+      site_url: ""
+      site_title: ""
+      safety:
+        bypass_filters: false
+        obfuscate: false
+      models:
+        # Тип: string, По умолчанию: "llama3.1:8b"
+        text: "llama3.1:8b"
+        # Тип: string, По умолчанию: "nomic-embed-text"
+        embed: "nomic-embed-text"
+      temperatures: {}
+      debug: false
+      extra: {}
+
+  # ------------------------------------------------------------------------
+  # response_types — маршрутизация «ResponseType → (Provider, Model, Temperature)»
+  # ------------------------------------------------------------------------
+  response_types:
+    # --- Базовые типы ---
+    default:
+      # Провайдер (gemini | deepseek | openrouter | chatgpt | local)
+      # Тип: string, По умолчанию: "gemini"
+      provider: "gemini"
+      # Модель (переопределяет models.text провайдера, если задано)
+      # Тип: string, По умолчанию: "" (использовать модель провайдера)
+      model: ""
+      # Температура [0.0, 2.0]
+      # Тип: float64, По умолчанию: 1.0
+      temperature: 1.0
+      # Резервный провайдер при отказе основного
+      # Тип: string, По умолчанию: "deepseek"
+      fallback_provider: "deepseek"
+      # Приоритет (чем меньше, тем выше)
+      # Тип: int, По умолчанию: 0
+      priority: 0
+
+    direct:
+      provider: "gemini"
+      model: ""
+      temperature: 1.0
+      fallback_provider: "deepseek"
+      priority: 0
+
+    serious:
+      provider: "gemini"
+      model: ""
+      temperature: 0.8
+      fallback_provider: "deepseek"
+      priority: 0
+
+    daily_take:
+      provider: "deepseek"
+      model: "deepseek-chat"
+      temperature: 1.2
+      fallback_provider: "openrouter"
+      priority: 0
+
+    summary:
+      provider: "gemini"
+      model: ""
+      temperature: 0.7
+      fallback_provider: "deepseek"
+      priority: 0
+
+    voice_message:
+      provider: "gemini"
+      model: ""
+      temperature: 1.0
+      fallback_provider: ""
+      priority: 0
+
+    srach_warning:
+      provider: "gemini"
+      model: ""
+      temperature: 0.5
+      fallback_provider: ""
+      priority: 0
+
+    srach_analysis:
+      provider: "gemini"
+      model: ""
+      temperature: 0.5
+      fallback_provider: ""
+      priority: 0
+
+    srach_confirm:
+      provider: "gemini"
+      model: ""
+      temperature: 0.3
+      fallback_provider: ""
+      priority: 0
+
+    rate_limit:
+      provider: "gemini"
+      model: ""
+      temperature: 1.0
+      fallback_provider: ""
+      priority: 0
+
+    welcome:
+      provider: "gemini"
+      model: ""
+      temperature: 1.0
+      fallback_provider: ""
+      priority: 0
+
+    voice_format:
+      provider: "gemini"
+      model: ""
+      temperature: 0.3
+      fallback_provider: ""
+      priority: 0
+
+    classify_direct_message:
+      provider: "gemini"
+      model: ""
+      temperature: 0.3
+      fallback_provider: ""
+      priority: 0
+
+    direct_reply_limit:
+      provider: "gemini"
+      model: ""
+      temperature: 1.0
+      fallback_provider: ""
+      priority: 0
+
+    photo_analysis:
+      provider: "gemini"
+      model: ""
+      temperature: 0.7
+      fallback_provider: ""
+      priority: 0
+
+    # --- Классификация и модерация ---
+    classify:
+      provider: "gemini"
+      model: ""
+      temperature: 0.3
+      fallback_provider: ""
+      priority: 0
+
+    moderation:
+      provider: "gemini"
+      model: ""
+      temperature: 0.3
+      fallback_provider: ""
+      priority: 0
+
+    # --- Донаты ---
+    donate:
+      provider: "gemini"
+      model: ""
+      temperature: 1.0
+      fallback_provider: ""
+      priority: 0
+
+    # --- AutoBio ---
+    auto_bio:
+      provider: "gemini"
+      model: ""
+      temperature: 0.6
+      fallback_provider: ""
+      priority: 0
+
+    auto_bio_update:
+      provider: "gemini"
+      model: ""
+      temperature: 0.6
+      fallback_provider: ""
+      priority: 0
+
+    # --- Personality ---
+    personality_analysis:
+      provider: "gemini"
+      model: ""
+      temperature: 0.5
+      fallback_provider: ""
+      priority: 0
+
+    personality_name:
+      provider: "gemini"
+      model: ""
+      temperature: 0.3
+      fallback_provider: ""
+      priority: 0
+
+    personality_topic:
+      provider: "gemini"
+      model: ""
+      temperature: 0.4
+      fallback_provider: ""
+      priority: 0
+
+    personality_self:
+      provider: "gemini"
+      model: ""
+      temperature: 0.6
+      fallback_provider: ""
+      priority: 0
+
+    # --- Фото ---
+    photo:
+      provider: "gemini"
+      model: ""
+      temperature: 0.7
+      fallback_provider: ""
+      priority: 0
+
+    # --- Веб-поиск ---
+    web_search:
+      provider: "gemini"
+      model: ""
+      temperature: 0.4
+      fallback_provider: ""
+      priority: 0
+
+    # --- Реакции ---
+    clown_reaction:
+      provider: "gemini"
+      model: ""
+      temperature: 1.0
+      fallback_provider: ""
+      priority: 0
+
+    reaction_analysis:
+      provider: "gemini"
+      model: ""
+      temperature: 0.5
+      fallback_provider: ""
+      priority: 0
+
+    # --- Анти-повторения ---
+    anti_repetition:
+      provider: "deepseek"
+      model: "deepseek-chat"
+      temperature: 1.1
+      fallback_provider: "openrouter"
+      priority: 0
+
+    # --- Free Will ---
+    free_will_should_reply:
+      provider: "gemini"
+      model: ""
+      temperature: 0.6
+      fallback_provider: "deepseek"
+      priority: 0
+
+    free_will_response_type:
+      provider: "gemini"
+      model: ""
+      temperature: 0.8
+      fallback_provider: "deepseek"
+      priority: 0
+
+    free_will_direct:
+      provider: "gemini"
+      model: ""
+      temperature: 1.0
+      fallback_provider: "deepseek"
+      priority: 0
+
+    free_will_general:
+      provider: "gemini"
+      model: ""
+      temperature: 1.0
+      fallback_provider: "deepseek"
+      priority: 0
+
+    free_will_context:
+      provider: "gemini"
+      model: ""
+      temperature: 1.0
+      fallback_provider: "deepseek"
+      priority: 0
+
+    free_will_silence:
+      provider: "deepseek"
+      model: "deepseek-chat"
+      temperature: 1.2
+      fallback_provider: "openrouter"
+      priority: 0
+
+    free_will_mood:
+      provider: "gemini"
+      model: ""
+      temperature: 0.5
+      fallback_provider: ""
+      priority: 0
+
+    free_will_take:
+      provider: "deepseek"
+      model: "deepseek-chat"
+      temperature: 1.0
+      fallback_provider: "openrouter"
+      priority: 0
+
+    free_will_reaction:
+      provider: "gemini"
+      model: ""
+      temperature: 0.4
+      fallback_provider: ""
+      priority: 0
+
+    free_will_direct_response_decision:
+      provider: "gemini"
+      model: ""
+      temperature: 0.6
+      fallback_provider: ""
+      priority: 0
+
+    free_will_direct_response:
+      provider: "gemini"
+      model: ""
+      temperature: 1.0
+      fallback_provider: "deepseek"
+      priority: 0
+
+    # --- Post-Processor ---
+    post_process_single:
+      provider: "gemini"
+      model: ""
+      temperature: 0.8
+      fallback_provider: ""
+      priority: 0
+
+    post_process_short:
+      provider: "gemini"
+      model: ""
+      temperature: 0.8
+      fallback_provider: ""
+      priority: 0
+
+    post_process_long:
+      provider: "gemini"
+      model: ""
+      temperature: 0.7
+      fallback_provider: ""
+      priority: 0
+
+    post_process_intelligent:
+      provider: "gemini"
+      model: ""
+      temperature: 0.8
+      fallback_provider: ""
+      priority: 0
+
+    post_process_summary:
+      provider: "gemini"
+      model: ""
+      temperature: 0.6
+      fallback_provider: ""
+      priority: 0
+
+    # --- Causal Learning ---
+    causal_analysis:
+      provider: "gemini"
+      model: ""
+      temperature: 0.7
+      fallback_provider: ""
+      priority: 0
+
+    causal_influence:
+      provider: "gemini"
+      model: ""
+      temperature: 0.6
+      fallback_provider: ""
+      priority: 0
+
+    # --- Emotional Learning ---
+    emotional_analysis:
+      provider: "gemini"
+      model: ""
+      temperature: 0.8
+      fallback_provider: ""
+      priority: 0
+
+    emotional_adaptation:
+      provider: "gemini"
+      model: ""
+      temperature: 0.7
+      fallback_provider: ""
+      priority: 0
+
+    emotional_feedback:
+      provider: "gemini"
+      model: ""
+      temperature: 0.6
+      fallback_provider: ""
+      priority: 0
+
+    # --- Belief Learning ---
+    belief_analysis:
+      provider: "gemini"
+      model: ""
+      temperature: 0.5
+      fallback_provider: ""
+      priority: 0
+
+    # --- Cognitive Architecture ---
+    internal_monologue:
+      provider: "gemini"
+      model: ""
+      temperature: 0.4
+      fallback_provider: ""
+      priority: 0
+
+    self_reflection:
+      provider: "gemini"
+      model: ""
+      temperature: 0.5
+      fallback_provider: ""
+      priority: 0
+
+    # --- Social Architecture ---
+    relationship_analysis:
+      provider: "gemini"
+      model: ""
+      temperature: 0.6
+      fallback_provider: ""
+      priority: 0
+
+    # --- Image Generation ---
+    image_gen:
+      provider: "gemini"
+      model: ""
+      temperature: 0.7
+      fallback_provider: ""
+      priority: 0
+
+  # ------------------------------------------------------------------------
+  # image_analysis — настройки анализа изображений (старый Config)
+  # ------------------------------------------------------------------------
+  image_analysis:
+    # Включён ли анализ фотографий (через LLM)
+    # Тип: bool, По умолчанию: false
+    enabled: false
+
+# -----------------------------------------------------------------------------
+# tts — Text-to-Speech
+# -----------------------------------------------------------------------------
+tts:
+  # Основной TTS-провайдер (elevenlabs | gemini_tts)
+  # Тип: string, По умолчанию: "elevenlabs"
+  provider: "elevenlabs"
+  # Резервный TTS-провайдер при недоступности основного
+  # Тип: string, По умолчанию: "gemini_tts"
+  fallback: "gemini_tts"
+
+  # ElevenLabs TTS
+  elevenlabs:
+    # API-ключ ElevenLabs
+    # Тип: string (secret)
+    api_key: "${ELEVENLABS_API_KEY}"
+    # Voice ID (Arcadias по умолчанию)
+    # Тип: string, По умолчанию: "Obuyk6KKzg9olSLPaCbl"
+    voice_id: "Obuyk6KKzg9olSLPaCbl"
+    # Модель TTS
+    # Тип: string, По умолчанию: "eleven_multilingual_v2"
+    model: "eleven_multilingual_v2"
+    # Тарифный план (free | starter | creator | pro)
+    # Тип: string, По умолчанию: "starter"
+    plan: "starter"
+    # Расширенные настройки голоса
+    voice_settings:
+      # Стабильность голоса [0.0, 1.0]
+      # Тип: float64, По умолчанию: 0.5
+      stability: 0.5
+      # Усиление сходства с оригиналом [0.0, 1.0]
+      # Тип: float64, По умолчанию: 0.8
+      similarity_boost: 0.8
+      # Стиль речи [0.0, 1.0]
+      # Тип: float64, По умолчанию: 0.0
+      style: 0.0
+      # Улучшение голоса спикера
+      # Тип: bool, По умолчанию: true
+      use_speaker_boost: true
+      # Скорость речи [0.7, 1.2]
+      # Тип: float64, По умолчанию: 1.0
+      speed: 1.0
+    # Промпты для управления стилем голоса
+    prompts:
+      # Промпт стиля речи
+      # Тип: string, По умолчанию: ""
+      style: ""
+      # Промпт эмоциональной окраски
+      # Тип: string, По умолчанию: ""
+      emotion: ""
+      # Промпт темпа речи
+      # Тип: string, По умолчанию: ""
+      pace: ""
+    # Случайный выбор голоса при каждой генерации
+    # Тип: bool, По умолчанию: false
+    random_voice: false
+
+  # Gemini TTS (резервный TTS)
+  gemini_tts:
+    # Модель Gemini TTS
+    # Тип: string, По умолчанию: "gemini-2.5-flash-preview-tts"
+    model: "gemini-2.5-flash-preview-tts"
+    # Имя голоса
+    # Тип: string, По умолчанию: "Zephyr"
+    voice_name: "Zephyr"
+
+# -----------------------------------------------------------------------------
+# telegram — Telegram Bot API и настройки чата
+# -----------------------------------------------------------------------------
+telegram:
+  # Токен Telegram бота
+  # Тип: string (secret)
+  token: "${TELEGRAM_TOKEN}"
+  # User ID бота (опционально)
+  # Тип: int64, По умолчанию: 0
+  bot_user_id: 0
+  # Список имён, на которые бот реагирует как на обращения
+  # Тип: []string, По умолчанию: ["Катя", "катя", "Luna", "luna"]
+  bot_names:
+    - "Катя"
+    - "катя"
+    - "Luna"
+    - "luna"
+  # Список ID администраторов
+  # Тип: []int64, По умолчанию: []
+  admin_ids: []
+  # Список Telegram-username администраторов (через запятую в .env)
+  # Тип: []string, По умолчанию: []
+  admin_usernames: []
+  # Режим отладки (включает расширенное логирование)
+  # Тип: bool, По умолчанию: false
+  debug: false
+  # Часовой пояс (IANA timezone, e.g. "Asia/Yekaterinburg")
+  # Тип: string, По умолчанию: "Asia/Yekaterinburg"
+  timezone: "Asia/Yekaterinburg"
+  # Время автоудаления сообщений об ошибках (сек)
+  # Тип: int, По умолчанию: 5
+  error_message_auto_delete_seconds: 5
+  # Использовать структурированный формат сообщений с тегами [MSG_START]/[MSG_END]
+  # Тип: bool, По умолчанию: true
+  use_structured_message_format: true
+
+# -----------------------------------------------------------------------------
+# chat — настройки контекста чата (старый Config)
+# -----------------------------------------------------------------------------
+chat:
+  # Минимальное количество сообщений для ответа бота
+  # Тип: int, По умолчанию: 10
+  min_messages: 10
+  # Максимальное количество сообщений для контекста ответа
+  # Тип: int, По умолчанию: 50
+  max_messages: 50
+  # Размер контекстного окна (кол-во последних сообщений)
+  # Тип: int, По умолчанию: 300
+  context_window: 300
+  # Размер контекстного окна для генерации изображений
+  # Тип: int, По умолчанию: 50
+  image_generation_context_window: 50
+  # Час отправки ежедневной темы (0-23)
+  # Тип: int, По умолчанию: 20
+  daily_take_time: 20
+
+# -----------------------------------------------------------------------------
+# summary — настройки саммари (старый Config)
+# -----------------------------------------------------------------------------
+summary:
+  # Интервал суточного саммари в часах (0 — выключено)
+  # Тип: int, По умолчанию: 0
+  interval_hours: 0
+  # Максимальное количество частей при разбивке длинного саммари
+  # Тип: int, По умолчанию: 5
+  max_parts: 5
+  # Еженедельное саммари
+  weekly:
+    # Включено ли еженедельное саммари
+    # Тип: bool, По умолчанию: false
+    enabled: false
+    # День недели (0=Вс, 1=Пн, ..., 6=Сб)
+    # Тип: int, По умолчанию: 0
+    day: 0
+    # Час отправки (0-23)
+    # Тип: int, По умолчанию: 18
+    hour: 18
+    # Минута отправки (0-59)
+    # Тип: int, По умолчанию: 0
+    minute: 0
+    # Максимальное количество частей
+    # Тип: int, По умолчанию: 5
+    max_parts: 5
+    # Метод поиска сообщений для саммари (flags | keywords | both)
+    # Тип: string, По умолчанию: "both"
+    search_method: "both"
+    # Поиск по флагам в БД
+    # Тип: bool, По умолчанию: true
+    flags_enabled: true
+    # Поиск по ключевым словам
+    # Тип: bool, По умолчанию: true
+    keywords_enabled: true
+
+# -----------------------------------------------------------------------------
+# rate_limit — настройки лимита запросов (старый Config)
+# -----------------------------------------------------------------------------
+rate_limit:
+  # Статический текст для сообщения о превышении лимита
+  # Тип: string, По умолчанию: "Превышен лимит запросов. Попробуй позже."
+  static_text: "Превышен лимит запросов. Попробуй позже."
+
+# -----------------------------------------------------------------------------
+# settings_prompts — UI-тексты для ввода настроек (старый Config)
+# -----------------------------------------------------------------------------
+settings_prompts:
+  # Тип: string, По умолчанию: "Минимальное количество сообщений для ответа:"
+  enter_min_messages: "Минимальное количество сообщений для ответа:"
+  # Тип: string, По умолчанию: "Максимальное количество сообщений для ответа:"
+  enter_max_messages: "Максимальное количество сообщений для ответа:"
+  # Тип: string, По умолчанию: "В какой час кидать ежедневную тему (0-23):"
+  enter_daily_time: "В какой час кидать ежедневную тему (0-23):"
+  # Тип: string, По умолчанию: "Интервал саммари в часах (0 - выкл):"
+  enter_summary_interval: "Интервал саммари в часах (0 - выкл):"
+  # Тип: string, По умолчанию: "Максимальное количество прямых обращений за период:"
+  enter_direct_limit_count: "Максимальное количество прямых обращений за период:"
+  # Тип: string, По умолчанию: "Длительность периода лимита (в минутах):"
+  enter_direct_limit_duration: "Длительность периода лимита (в минутах):"
+
+# -----------------------------------------------------------------------------
+# srach — настройки детекции споров/конфликтов (старый Config)
+# -----------------------------------------------------------------------------
+srach:
+  # Ключевые слова для детекции спора (через запятую)
+  # Тип: []string, По умолчанию: ["спор", "конфликт", "оскорбление"]
+  keywords:
+    - "спор"
+    - "конфликт"
+    - "оскорбление"
+  # Включён ли анализ споров
+  # Тип: bool, По умолчанию: true
+  analysis_enabled: true
+
+# -----------------------------------------------------------------------------
+# direct_reply_limits — настройки лимитов прямых обращений (старый Config)
+# -----------------------------------------------------------------------------
+direct_reply_limits:
+  # Включены ли лимиты по умолчанию для чатов
+  # Тип: bool, По умолчанию: false
+  enabled_default: false
+  # Количество обращений по умолчанию
+  # Тип: int, По умолчанию: 3
+  count_default: 3
+  # Длительность периода лимита по умолчанию (минуты)
+  # Тип: int, По умолчанию: 60
+  duration_minutes_default: 60
+
+# -----------------------------------------------------------------------------
+# donate — настройки сообщений о донатах (старый Config)
+# -----------------------------------------------------------------------------
+donate:
+  # Интервал отправки сообщений о донатах (часы)
+  # Тип: int, По умолчанию: 24
+  time_hours: 24
+  # Интервал напоминаний о платеже (часы)
+  # Тип: int, По умолчанию: 6
+  payment_reminder_interval_hours: 6
+
+# -----------------------------------------------------------------------------
+# free_will — автономное поведение бота
+# -----------------------------------------------------------------------------
+free_will:
+  # Включён ли Free Will (автономные сообщения)
+  # Тип: bool, По умолчанию: false
+  enabled: false
+  # Интервалы между проверками необходимости ответа
+  intervals:
+    # Минимальный интервал (минуты)
+    # Тип: float64, По умолчанию: 15.0
+    min_minutes: 15.0
+    # Максимальный интервал (минуты)
+    # Тип: float64, По умолчанию: 60.0
+    max_minutes: 60.0
+  # Размер контекстного окна для анализа Free Will
+  # Тип: int, По умолчанию: 50
+  context_window: 50
+  # Вероятность обновления настроения при проверке
+  # Тип: float64, По умолчанию: 0.1
+  mood_update_probability: 0.1
+  # Максимальное количество решений Free Will в час
+  # Тип: int, По умолчанию: 10
+  max_decisions_per_hour: 10
+  # Вероятность выбора голосового сообщения (если доступно)
+  # Тип: float64, По умолчанию: 0.3
+  voice_probability: 0.3
+  # Настройки реакции на тишину
+  silence:
+    # Минимальное время тишины для реакции (минуты)
+    # Тип: float64, По умолчанию: 3.0
+    min_minutes: 3.0
+    # Максимальное время тишины для реакции (минуты)
+    # Тип: float64, По умолчанию: 20.0
+    max_minutes: 20.0
+  # Настройки реакций Free Will
+  reactions:
+    # Включены ли реакции
+    # Тип: bool, По умолчанию: true
+    enabled: true
+    # Вероятность реакции при проверке
+    # Тип: float64, По умолчанию: 0.2
+    probability: 0.2
+    # Cooldown между реакциями (минуты)
+    # Тип: int, По умолчанию: 5
+    cooldown_minutes: 5
+    # Максимум реакций в час
+    # Тип: int, По умолчанию: 15
+    max_per_hour: 15
+  # Настройки прямых ответов (Direct Response)
+  direct_response:
+    # Максимум прямых ответов в час
+    # Тип: int, По умолчанию: 30
+    max_per_hour: 30
+    # Минимальный интервал между прямыми ответами (сек)
+    # Тип: float64, По умолчанию: 5.0
+    min_interval_seconds: 5.0
+    # Независимые лимиты (не учитываются в общих лимитах Free Will)
+    # Тип: bool, По умолчанию: true
+    independent_limits: true
+  # Настройки генерации изображений через Free Will
+  image_generation:
+    # Максимум решений о генерации изображений за интервал
+    # Тип: int, По умолчанию: 3
+    max_per_interval: 3
+    # Интервал сброса лимита (часы)
+    # Тип: int, По умолчанию: 6
+    interval_hours: 6
+    # Минимальный интервал между решениями о генерации (минуты)
+    # Тип: int, По умолчанию: 30
+    min_decision_interval_minutes: 30
+    # Независимые лимиты
+    # Тип: bool, По умолчанию: true
+    independent_limits: true
+    # Частота генерации изображений (часы, старый Config)
+    # Тип: int, По умолчанию: 12
+    frequency_hours: 12
+  # Включён ли старый механизм интервальных сообщений
+  # Тип: bool, По умолчанию: true
+  interval_messages:
+    enabled: true
+
+# -----------------------------------------------------------------------------
+# voice_messages — настройки голосовых сообщений (старый механизм)
+# -----------------------------------------------------------------------------
+voice_messages:
+  # Включены ли голосовые сообщения
+  # Тип: bool, По умолчанию: true
+  enabled: true
+  # Интервал отправки голосовых сообщений (кол-во текстовых сообщений между)
+  interval:
+    # Минимальный интервал
+    # Тип: int, По умолчанию: 50
+    min: 50
+    # Максимальный интервал
+    # Тип: int, По умолчанию: 100
+    max: 100
+  # Директория для временных файлов голосовых сообщений
+  # Тип: string, По умолчанию: "/tmp/voice_messages"
+  temp_dir: "/tmp/voice_messages"
+
+# -----------------------------------------------------------------------------
+# moderation — настройки модерации
+# -----------------------------------------------------------------------------
+moderation:
+  # Глобальное включение модерации
+  # Тип: bool, По умолчанию: false
+  enabled: false
+  # Интервал проверки сообщений (сек)
+  # Тип: int, По умолчанию: 1
+  interval_minutes: 1
+  # Время мута по умолчанию (минуты)
+  # Тип: int, По умолчанию: 5
+  mute_time_minutes: 5
+  # Время кика по умолчанию (минуты, 0 = перманентный)
+  # Тип: int, По умолчанию: 1
+  kick_time_minutes: 1
+  # Время бана по умолчанию (минуты, 0 = перманентный)
+  # Тип: int, По умолчанию: 60
+  ban_time_minutes: 60
+  # Окно для purge (длительность сообщений для удаления)
+  # Тип: duration, По умолчанию: "1h"
+  purge_window_duration: "1h"
+  # Задержка перед началом purge
+  # Тип: duration, По умолчанию: "0s"
+  purge_delay_duration: "0s"
+  # Проверять права администратора бота перед активацией модерации
+  # Тип: bool, По умолчанию: true
+  check_admin_rights: true
+  # Уведомлять по умолчанию о наказании
+  # Тип: bool, По умолчанию: false
+  default_notify: false
+  # Правила модерации (JSON-массив, старый Config)
+  # Пример:
+  #   - rule_name: "anti_spam"
+  #     chat_id: "none"
+  #     user_id: "none"
+  #     keywords: ["spam", "казино"]
+  #     punishment: "mute"
+  #     notify_user: true
+  # Тип: []ModerationRule, По умолчанию: []
+  rules: []
+
+# -----------------------------------------------------------------------------
+# anti_repetition — система анти-повторений
+# -----------------------------------------------------------------------------
+anti_repetition:
+  # Включена ли система анти-повторений
+  # Тип: bool, По умолчанию: true
+  enabled: true
+  # Максимальное количество сохранённых ответов на чат
+  # Тип: int, По умолчанию: 20
+  max_responses_per_chat: 20
+  # Порог схожести для детекции повтора (косинусное расстояние) [0.0, 1.0]
+  # Тип: float64, По умолчанию: 0.75
+  similarity_threshold: 0.75
+  # Окно времени для проверки повторов (часы)
+  # Тип: int, По умолчанию: 24
+  time_window_hours: 24
+  # Интервал очистки старых записей (часы)
+  # Тип: int, По умолчанию: 1
+  cleanup_interval_hours: 1
+  # Настройки переработки повторяющихся ответов
+  rework:
+    # Включена ли переработка
+    # Тип: bool, По умолчанию: true
+    enabled: true
+    # Максимальное количество попыток переработки
+    # Тип: int, По умолчанию: 2
+    max_attempts: 2
+    # Температура для переработки
+    # Тип: float64, По умолчанию: 0.8
+    temperature: 0.8
+    # Локальная переработка (без вызова LLM)
+    local_rework:
+      # Включена ли локальная переработка
+      # Тип: bool, По умолчанию: true
+      enabled: true
+      # Максимальная длина текста для локальной переработки (символы)
+      # Тип: int, По умолчанию: 50
+      max_length: 50
+
+# -----------------------------------------------------------------------------
+# disambiguation — дисамбигуация пользователей
+# -----------------------------------------------------------------------------
+disambiguation:
+  # Включена ли система дисамбигуации (различение пользователей с одинаковыми именами)
+  # Тип: bool, По умолчанию: true
+  enabled: true
+
+# -----------------------------------------------------------------------------
+# message_post_processor — постобработка сообщений
+# -----------------------------------------------------------------------------
+message_post_processor:
+  # Включён ли постпроцессор
+  # Тип: bool, По умолчанию: true
+  enabled: true
+  # Включена ли рандомизация выбора типа постобработки
+  # Тип: bool, По умолчанию: true
+  randomization_enabled: true
+  # Вероятности выбора типа постобработки
+  probabilities:
+    # Вероятность постобработки одиночных слов
+    # Тип: float64, По умолчанию: 0.20
+    single_word: 0.20
+    # Вероятность постобработки коротких предложений
+    # Тип: float64, По умолчанию: 0.35
+    short_sentences: 0.35
+    # Вероятность постобработки длинных сообщений
+    # Тип: float64, По умолчанию: 0.25
+    long_messages: 0.25
+  # Настройки длины сообщений
+  length:
+    # Минимальная длина сообщения для постобработки
+    # Тип: int, По умолчанию: 10
+    min: 10
+    # Максимальная длина сообщения для постобработки
+    # Тип: int, По умолчанию: 2000
+    max: 2000
+    # Порог «длинного сообщения» (символы)
+    # Тип: int, По умолчанию: 100
+    long_message_threshold: 100
+    # Порог принудительной длинной обработки (символы)
+    # Тип: int, По умолчанию: 200
+    force_long_processing_threshold: 200
+  # Настройки производительности
+  performance:
+    # Таймаут обработки (сек)
+    # Тип: int, По умолчанию: 15
+    timeout_seconds: 15
+    # Температура для постобработки
+    # Тип: float64, По умолчанию: 0.9
+    temperature: 0.9
+  # Настройки кэширования
+  cache:
+    # Включён ли кэш результатов постобработки
+    # Тип: bool, По умолчанию: true
+    enabled: true
+    # Время жизни кэша (минуты)
+    # Тип: int, По умолчанию: 30
+    ttl_minutes: 30
+    # Кэш замен имён пользователей
+    replacement_cache:
+      # Включён ли кэш замен
+      # Тип: bool, По умолчанию: true
+      enabled: true
+      # Время жизни кэша замен (минуты)
+      # Тип: int, По умолчанию: 10
+      ttl_minutes: 10
+  # Типы ответов, исключённые из постобработки
+  # Тип: []string, По умолчанию: ["system", "error", "admin"]
+  exclude_types:
+    - "system"
+    - "error"
+    - "admin"
+  # Исключать ли еженедельное саммари из постобработки
+  # Тип: bool, По умолчанию: true
+  weekly_summary_exclude: true
+  # Настройки отладки постпроцессора
+  debug:
+    # Логирование работы постпроцессора
+    # Тип: bool, По умолчанию: false
+    logging: false
+    # Логирование оригинальных сообщений до обработки
+    # Тип: bool, По умолчанию: false
+    log_original_messages: false
+
+# -----------------------------------------------------------------------------
+# auto_bio — автоматический анализ профилей пользователей
+# -----------------------------------------------------------------------------
+auto_bio:
+  # Включён ли AutoBio
+  # Тип: bool, По умолчанию: false
+  enabled: false
+  # Интервал анализа (часы)
+  # Тип: int, По умолчанию: 24
+  interval_hours: 24
+  # Количество дней для первого анализа (lookback)
+  # Тип: int, По умолчанию: 30
+  lookback_days: 30
+  # Минимальное количество сообщений для анализа
+  # Тип: int, По умолчанию: 10
+  min_messages_for_analysis: 10
+  # Максимальное количество сообщений для анализа (отправляется в LLM)
+  # Тип: int, По умолчанию: 1000
+  max_messages_for_analysis: 1000
+
+# -----------------------------------------------------------------------------
+# personality — память личности бота
+# -----------------------------------------------------------------------------
+personality:
+  # Интервал обновления памяти личности (часы)
+  # Тип: int, По умолчанию: 1
+  update_interval_hours: 1
+  # Количество последних сообщений для анализа
+  # Тип: int, По умолчанию: 50
+  messages_lookback: 50
+  # Максимальное количество имён в памяти
+  # Тип: int, По умолчанию: 10
+  max_name_mentions: 10
+  # Максимальное количество недавних тем
+  # Тип: int, По умолчанию: 10
+  max_recent_topics: 10
+  # Максимальное количество элементов самовосприятия
+  # Тип: int, По умолчанию: 5
+  max_self_perceptions: 5
+  # Максимальное количество тем в текущем контексте обсуждения
+  # Тип: int, По умолчанию: 3
+  max_discussion_contexts: 3
+
+# -----------------------------------------------------------------------------
+# reactions — настройки реакций на пользователей
+# -----------------------------------------------------------------------------
+reactions:
+  # Включены ли реакции
+  # Тип: bool, По умолчанию: true
+  enabled: true
+  # Настройки реакции на «клоунов» (троллей)
+  clown:
+    # Вероятность ответа клоуну (проценты, 0-100)
+    # Тип: int, По умолчанию: 40
+    response_probability: 40
+    # Cooldown между ответами от одного пользователя (сек)
+    # Тип: int, По умолчанию: 30
+    cooldown_seconds: 30
+    # Максимум ответов клоунам в час
+    # Тип: int, По умолчанию: 10
+    max_responses_per_hour: 10
+
+# -----------------------------------------------------------------------------
+# web_search — настройки веб-поиска
+# -----------------------------------------------------------------------------
+web_search:
+  # Включён ли веб-поиск
+  # Тип: bool, По умолчанию: true
+  enabled: true
+  # API-ключ Google Custom Search
+  # Тип: string (secret)
+  google_api_key: "${GOOGLE_SEARCH_API_KEY}"
+  # Search Engine ID (Google CSE)
+  # Тип: string (secret)
+  search_engine_id: "${GOOGLE_SEARCH_ENGINE_ID}"
+  # Максимальное количество результатов поиска
+  # Тип: int, По умолчанию: 3
+  max_results: 3
+  # Настройки кэширования результатов поиска
+  cache:
+    # Время жизни кэша
+    # Тип: duration, По умолчанию: "5m"
+    ttl: "5m"
+    # Максимальный размер кэша (кол-во записей)
+    # Тип: int, По умолчанию: 100
+    max_size: 100
+
+# -----------------------------------------------------------------------------
+# causal_learning — каузальное обучение (причинно-следственные связи)
+# -----------------------------------------------------------------------------
+causal_learning:
+  # Включено ли каузальное обучение
+  # Тип: bool, По умолчанию: false
+  enabled: false
+  # Интервал анализа каузальных связей (часы)
+  # Тип: int, По умолчанию: 4
+  analysis_interval_hours: 4
+  # Минимальная уверенность для сохранения связи [0.0, 1.0]
+  # Тип: float64, По умолчанию: 0.3
+  min_confidence: 0.3
+  # Окно для связывания событий (минуты)
+  # Тип: int, По умолчанию: 60
+  temporal_window_minutes: 60
+  # Максимальное количество записей каузальных связей на чат
+  # Тип: int, По умолчанию: 500
+  max_entries_per_chat: 500
+  # Количество сообщений для анализа за один проход
+  # Тип: int, По умолчанию: 100
+  analysis_lookback_messages: 100
+
+# -----------------------------------------------------------------------------
+# emotional_learning — эмоциональное обучение
+# -----------------------------------------------------------------------------
+emotional_learning:
+  # Включена ли эмоциональная система
+  # Тип: bool, По умолчанию: true
+  enabled: true
+  # Интервал анализа эмоционального состояния (часы)
+  # Тип: int, По умолчанию: 2
+  analysis_interval_hours: 2
+  # Количество сообщений для анализа эмоций
+  # Тип: int, По умолчанию: 100
+  analysis_lookback_messages: 100
+  # Срок хранения эмоциональных воспоминаний (дни)
+  # Тип: int, По умолчанию: 30
+  memory_retention_days: 30
+
+# -----------------------------------------------------------------------------
+# belief_learning — система убеждений
+# -----------------------------------------------------------------------------
+belief_learning:
+  # Включена ли система убеждений
+  # Тип: bool, По умолчанию: false
+  enabled: false
+  # Интервал анализа убеждений (часы)
+  # Тип: int, По умолчанию: 6
+  analysis_interval_hours: 6
+  # Количество сообщений для анализа убеждений
+  # Тип: int, По умолчанию: 150
+  analysis_lookback_messages: 150
+
+# -----------------------------------------------------------------------------
+# cognitive_architecture — когнитивная архитектура
+# -----------------------------------------------------------------------------
+cognitive_architecture:
+  # Внутренний монолог
+  internal_monologue:
+    # Включён ли внутренний монолог
+    # Тип: bool, По умолчанию: false
+    enabled: false
+    # Температура для внутреннего монолога
+    # Тип: float64, По умолчанию: 0.4
+    temperature: 0.4
+  # Саморефлексия
+  self_reflection:
+    # Включена ли саморефлексия
+    # Тип: bool, По умолчанию: false
+    enabled: false
+    # Температура для саморефлексии
+    # Тип: float64, По умолчанию: 0.5
+    temperature: 0.5
+  # Калибровка уверенности
+  confidence_calibration:
+    # Включена ли калибровка уверенности
+    # Тип: bool, По умолчанию: false
+    enabled: false
+
+# -----------------------------------------------------------------------------
+# social_architecture — социальная архитектура
+# -----------------------------------------------------------------------------
+social_architecture:
+  # Отслеживание отношений с пользователями
+  relationship_tracking:
+    # Включено ли отслеживание отношений
+    # Тип: bool, По умолчанию: false
+    enabled: false
+  # Социальное обучение
+  social_learning:
+    # Включено ли социальное обучение
+    # Тип: bool, По умолчанию: false
+    enabled: false
+  # Скорость роста близости [0.0, 1.0]
+  # Тип: float64, По умолчанию: 0.02
+  intimacy_growth_rate: 0.02
+  # Скорость затухания доверия [0.0, 1.0]
+  # Тип: float64, По умолчанию: 0.01
+  trust_decay_rate: 0.01
+
+# -----------------------------------------------------------------------------
+# association_cloud — ассоциативное облако (граф памяти)
+# -----------------------------------------------------------------------------
+association_cloud:
+  # Включено ли облако ассоциаций
+  # Тип: bool, По умолчанию: false
+  enabled: false
+  # Лимит узлов на чат
+  # Тип: int, По умолчанию: 5000
+  max_nodes: 5000
+  # Лимит рёбер на чат
+  # Тип: int, По умолчанию: 50000
+  max_edges: 50000
+  # Срок свежести ассоциаций для выборок (дни)
+  # Тип: int, По умолчанию: 30
+  decay_days: 30
+
+# -----------------------------------------------------------------------------
+# storage — база данных и хранилище
+# -----------------------------------------------------------------------------
+storage:
+  # Тип хранилища (postgres | mongo | file)
+  # Тип: string, По умолчанию: "postgres"
+  type: "postgres"
+
+  # PostgreSQL
+  postgresql:
+    # Хост
+    # Тип: string, По умолчанию: "localhost"
+    host: "localhost"
+    # Порт
+    # Тип: int, По умолчанию: 5432
+    port: 5432
+    # Пользователь
+    # Тип: string, По умолчанию: "postgres"
+    user: "postgres"
+    # Пароль
+    # Тип: string (secret)
+    password: "${POSTGRESQL_PASSWORD}"
+    # Имя базы данных
+    # Тип: string, По умолчанию: "luna_bot"
+    dbname: "luna_bot"
+
+  # MongoDB
+  mongodb:
+    # Строка подключения
+    # Тип: string (secret), По умолчанию: ""
+    uri: "${MONGODB_URI}"
+    # Имя базы данных
+    # Тип: string, По умолчанию: "luna_bot"
+    dbname: "luna_bot"
+    # Коллекция сообщений
+    # Тип: string, По умолчанию: "chat_messages"
+    messages_collection: "chat_messages"
+    # Коллекция профилей пользователей
+    # Тип: string, По умолчанию: "user_profiles"
+    user_profiles_collection: "user_profiles"
+    # Коллекция настроек чатов
+    # Тип: string, По умолчанию: "settings"
+    settings_collection: "settings"
+    # Имя векторного индекса (MongoDB Atlas)
+    # Тип: string, По умолчанию: "vector_index"
+    vector_index_name: "vector_index"
+
+  # Долгосрочная память (Long-Term Memory)
+  long_term_memory:
+    # Включена ли долгосрочная память (эмбеддинги)
+    # Тип: bool, По умолчанию: false
+    enabled: false
+    # Модель для эмбеддингов
+    # Тип: string, По умолчанию: "embedding-001"
+    embedding_model: "embedding-001"
+    # Количество релевантных сообщений для извлечения (Fetch K)
+    # Тип: int, По умолчанию: 5
+    fetch_k: 5
+    # Настройки бэкфилла эмбеддингов
+    backfill:
+      # Размер пакета для бэкфилла
+      # Тип: int, По умолчанию: 100
+      batch_size: 100
+      # Задержка между пакетами
+      # Тип: duration, По умолчанию: "1s"
+      batch_delay: "1s"
+
+  # Автоочистка хранилища
+  cleanup:
+    # Включена ли автоочистка
+    # Тип: bool, По умолчанию: false
+    enabled: false
+    # Лимит размера коллекции (МБ) перед очисткой
+    # Тип: int, По умолчанию: 450
+    size_limit_mb: 450
+    # Интервал проверки (минуты)
+    # Тип: int, По умолчанию: 60
+    interval_minutes: 60
+    # Длительность удаляемого «куска» старых сообщений (часы)
+    # Тип: int, По умолчанию: 24
+    chunk_duration_hours: 24
+
+# -----------------------------------------------------------------------------
+# embedding — настройки эмбеддингов и миграции (старый Config)
+# -----------------------------------------------------------------------------
+embedding:
+  # Лимит запросов в минуту
+  # Тип: int, По умолчанию: 240
+  requests_per_minute: 240
+  # Лимит запросов в день
+  # Тип: int, По умолчанию: 24000
+  requests_per_day: 24000
+  # Размер пакета эмбеддингов
+  # Тип: int, По умолчанию: 100
+  batch_size: 100
+  # Задержка между запросами эмбеддингов
+  # Тип: duration, По умолчанию: "0.3s"
+  request_delay: "0.3s"
+  # Задержка между пакетами
+  # Тип: duration, По умолчанию: "60s"
+  batch_delay: "60s"
+  # Адаптивный троттлинг
+  # Тип: bool, По умолчанию: true
+  adaptive_throttling: true
+  # Запас безопасности (множитель от лимита) [0.0, 1.0]
+  # Тип: float64, По умолчанию: 0.8
+  safety_margin: 0.8
+  # Максимальное количество повторных попыток
+  # Тип: int, По умолчанию: 3
+  max_retries: 3
+  # Кэш эмбеддингов
+  cache:
+    # Включён ли кэш
+    # Тип: bool, По умолчанию: true
+    enabled: true
+    # Директория кэша
+    # Тип: string, По умолчанию: "./cache/embeddings"
+    dir: "./cache/embeddings"
+  # Миграция
+  migration:
+    # Возобновление миграции после остановки
+    # Тип: bool, По умолчанию: true
+    resume_enabled: true
+    # Файл состояния миграции
+    # Тип: string, По умолчанию: "./migration_state.json"
+    state_file: "./migration_state.json"
+
+# -----------------------------------------------------------------------------
+# prompts — промпты для всех подсистем
+# -----------------------------------------------------------------------------
+prompts:
+  # Источник промптов: "files" (из .txt), "inline" (из этого YAML), "both" (inline приоритетнее)
+  # Тип: string, По умолчанию: "files"
+  source: "files"
+
+  # Пути к .txt файлам промптов (относительно internal/bot/prompts/ или абсолютные)
+  files:
+    # Базовые промпты
+    default: "internal/bot/prompts/default.txt"
+    direct: "internal/bot/prompts/direct.txt"
+    daily_take: "internal/bot/prompts/daily_take.txt"
+    summary: "internal/bot/prompts/summary.txt"
+    weekly_summary: "internal/bot/prompts/weekly_summary.txt"
+    voice_message: "internal/bot/prompts/voice_message.txt"
+    voice_format: "internal/bot/prompts/voice_format.txt"
+    welcome: "internal/bot/prompts/welcome.txt"
+    rate_limit: "internal/bot/prompts/rate_limit.txt"
+    donate: "internal/bot/prompts/donate.txt"
+    # Классификация и модерация
+    classify_direct_message: "internal/bot/prompts/classify_direct_message.txt"
+    serious_direct: "internal/bot/prompts/serious_direct.txt"
+    direct_reply_limit: "internal/bot/prompts/direct_reply_limit.txt"
+    # Срач
+    srach_warning: "internal/bot/prompts/srach_warning.txt"
+    srach_analysis: "internal/bot/prompts/srach_analysis.txt"
+    srach_confirm: "internal/bot/prompts/srach_confirm.txt"
+    # Фото
+    photo_analysis: "internal/bot/prompts/photo_analysis.txt"
+    # AutoBio
+    auto_bio_initial_analysis: "internal/bot/prompts/auto_bio_initial_analysis.txt"
+    auto_bio_update: "internal/bot/prompts/auto_bio_update.txt"
+    # Personality
+    personality_analysis: "internal/bot/prompts/personality_analysis.txt"
+    personality_name_analysis: "internal/bot/prompts/personality_name_analysis.txt"
+    personality_topic_analysis: "internal/bot/prompts/personality_topic_analysis.txt"
+    personality_self_update: "internal/bot/prompts/personality_self_update.txt"
+    # Реакции
+    clown_reaction: "internal/bot/prompts/clown_reaction.txt"
+    reaction_analysis: "internal/bot/prompts/reaction_analysis.txt"
+    # Веб-поиск
+    web_search_trigger: "internal/bot/prompts/web_search_trigger.txt"
+    # Free Will
+    free_will_should_reply: "internal/bot/prompts/free_will_should_reply.txt"
+    free_will_response_type: "internal/bot/prompts/free_will_response_type.txt"
+    free_will_reaction: "internal/bot/prompts/free_will_reaction.txt"
+    free_will_direct: "internal/bot/prompts/free_will_direct.txt"
+    free_will_general: "internal/bot/prompts/free_will_general.txt"
+    free_will_context: "internal/bot/prompts/free_will_context.txt"
+    free_will_silence: "internal/bot/prompts/free_will_silence.txt"
+    free_will_mood_analysis: "internal/bot/prompts/free_will_mood_analysis.txt"
+    free_will_take_response: "internal/bot/prompts/free_will_take_response.txt"
+    free_will_direct_response_decision: "internal/bot/prompts/free_will_direct_response_decision.txt"
+    free_will_direct_response: "internal/bot/prompts/free_will_direct_response.txt"
+    free_will_imagegen: "internal/bot/prompts/free_will_imagegen.txt"
+    image_gen_pre_prompt: "internal/bot/prompts/image_gen_pre_prompt.txt"
+    # Anti-Repetition
+    anti_repetition_rework: "internal/bot/prompts/anti_repetition_rework.txt"
+    # Message Post-Processor
+    message_post_processor_single_word: "internal/bot/prompts/message_post_processor_single_word.txt"
+    message_post_processor_short_sentences: "internal/bot/prompts/message_post_processor_short_sentences.txt"
+    message_post_processor_long_messages: "internal/bot/prompts/message_post_processor_long_messages.txt"
+    message_post_processor_intelligent: "internal/bot/prompts/message_post_processor_intelligent.txt"
+    message_post_processor_summary: "internal/bot/prompts/message_post_processor_summary.txt"
+    # Causal Learning
+    causal_analysis: "internal/bot/prompts/causal_analysis.txt"
+    causal_influence: "internal/bot/prompts/causal_influence.txt"
+    # Emotional Learning
+    emotional_analysis: "internal/bot/prompts/emotional_analysis.txt"
+    emotional_adaptation: "internal/bot/prompts/emotional_adaptation.txt"
+    emotional_feedback: "internal/bot/prompts/emotional_feedback.txt"
+    # Belief Learning
+    belief_analysis: "internal/bot/prompts/belief_analysis.txt"
+    # Cognitive Architecture
+    internal_monologue: "internal/bot/prompts/internal_monologue.txt"
+    self_reflection: "internal/bot/prompts/self_reflection.txt"
+    # Social Architecture
+    relationship_analysis: "internal/bot/prompts/relationship_analysis.txt"
+
+  # Инлайн-промпты (при source: "inline" или "both" имеют приоритет над файлами)
+  inline:
+    # Пример:
+    # default: "Ты — участник чата по имени Luna. Отвечай дружелюбно."
+    # direct: "Отвечай прямо и по делу на обращение к тебе."
+    # daily_take: "Сгенерируй провокационную тему для обсуждения."
+    # summary: "Создай краткое саммари обсуждения."
+    # welcome: "Привет, чат! Я ваш новый спутник в беседе."
+    # Оставлены пустыми — заполняются администратором при необходимости
+    default: ""
+    direct: ""
+    daily_take: ""
+    summary: ""
+    weekly_summary: ""
+    voice_message: ""
+    voice_format: ""
+    welcome: ""
+    rate_limit: ""
+    donate: ""
+    classify_direct_message: ""
+    serious_direct: ""
+    direct_reply_limit: ""
+    srach_warning: ""
+    srach_analysis: ""
+    srach_confirm: ""
+    photo_analysis: ""
+    auto_bio_initial_analysis: ""
+    auto_bio_update: ""
+    personality_analysis: ""
+    personality_name_analysis: ""
+    personality_topic_analysis: ""
+    personality_self_update: ""
+    clown_reaction: ""
+    reaction_analysis: ""
+    web_search_trigger: ""
+    free_will_should_reply: ""
+    free_will_response_type: ""
+    free_will_reaction: ""
+    free_will_direct: ""
+    free_will_general: ""
+    free_will_context: ""
+    free_will_silence: ""
+    free_will_mood_analysis: ""
+    free_will_take_response: ""
+    free_will_direct_response_decision: ""
+    free_will_direct_response: ""
+    free_will_imagegen: ""
+    image_gen_pre_prompt: ""
+    anti_repetition_rework: ""
+    message_post_processor_single_word: ""
+    message_post_processor_short_sentences: ""
+    message_post_processor_long_messages: ""
+    message_post_processor_intelligent: ""
+    message_post_processor_summary: ""
+    causal_analysis: ""
+    causal_influence: ""
+    emotional_analysis: ""
+    emotional_adaptation: ""
+    emotional_feedback: ""
+    belief_analysis: ""
+    internal_monologue: ""
+    self_reflection: ""
+    relationship_analysis: ""

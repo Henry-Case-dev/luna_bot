@@ -1,11 +1,5 @@
 package llm
 
-import (
-	"context"
-
-	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
-)
-
 // ResponseType определяет тип ответа для выбора подходящей модели LLM
 type ResponseType string
 
@@ -79,48 +73,14 @@ const (
 	ResponseTypeBeliefAnalysis ResponseType = "belief_analysis" // Анализ и обновление системы убеждений
 )
 
-// LLMClient определяет общий интерфейс для взаимодействия с различными LLM.
+// LLMClient — композитный интерфейс.
+// Объединяет все capability-интерфейсы в один контракт.
 type LLMClient interface {
-	// GenerateResponse генерирует ответ на основе истории сообщений и системного промпта.
-	// history - это сообщения ДО текущего lastMessage.
-	// lastMessage - это последнее сообщение пользователя, на которое нужно сгенерировать ответ.
-	// temperature - температура для генерации.
-	// DEPRECATED: Используйте GenerateResponseFromTextContext для включения профилей.
-	GenerateResponse(systemPrompt string, history []*tgbotapi.Message, lastMessage *tgbotapi.Message, temperature float32) (string, error)
-
-	// GenerateResponseFromTextContext генерирует ответ на основе системного промпта и предварительно отформатированного текстового контекста.
-	// contextText должен содержать всю необходимую информацию, включая историю сообщений и данные профилей.
-	// temperature - температура для генерации.
-	GenerateResponseFromTextContext(systemPrompt string, contextText string, temperature float32) (string, error)
-
-	// GenerateArbitraryResponse генерирует ответ на основе системного промпта и произвольного текстового контекста.
-	// Используется для задач, не требующих истории чата (например, анализ срача, саммари без профилей).
-	// temperature - температура для генерации.
-	GenerateArbitraryResponse(systemPrompt string, contextText string, temperature float32) (string, error)
-
-	// GenerateResponseByType генерирует ответ используя оптимальную модель для указанного типа ответа.
-	// Автоматически выбирает провайдера и модель на основе конфигурации для данного типа.
-	// responseType - тип ответа для выбора подходящей модели.
-	// systemPrompt - системный промпт.
-	// contextText - контекст или произвольный текст.
-	// temperature - температура для генерации (может быть переопределена в конфигурации типа).
-	GenerateResponseByType(responseType ResponseType, systemPrompt string, contextText string, temperature float32) (string, error)
-
-	// TranscribeAudio транскрибирует аудиоданные.
-	// Возвращает распознанный текст и ошибку.
-	TranscribeAudio(audioData []byte, mimeType string) (string, error)
-
-	// EmbedContent генерирует векторное представление (эмбеддинг) для заданного текста.
-	EmbedContent(text string) ([]float32, error)
-
-	// GenerateContentWithImage генерирует ответ на основе изображения и текстового промпта.
-	// Возвращает текстовое описание изображения и ошибку.
-	GenerateContentWithImage(ctx context.Context, systemPrompt string, imageData []byte, caption string) (string, error)
-
-	// GenerateImageWithEdit генерирует изображение на основе базового изображения и промпта для редактирования.
-	// Возвращает данные сгенерированного изображения и ошибку.
-	GenerateImageWithEdit(ctx context.Context, baseImageData []byte, editPrompt string) ([]byte, error)
-
-	// Close освобождает ресурсы, связанные с клиентом (если необходимо).
-	Close() error
+	TextGenerator
+	AudioTranscriber
+	Embedder
+	ImageAnalyzer
+	ImageGenerator
+	AudioGenerator
+	Closer
 }

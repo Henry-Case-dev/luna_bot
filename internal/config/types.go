@@ -1,3 +1,4 @@
+// DEPRECATED: используйте ConfigV2 из config.go. Будет удалён в v3.0.
 package config
 
 import "time"

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"os"
@@ -34,8 +35,23 @@ func main() {
 	fmt.Printf("FREE_WILL_ENABLED: %s\n", os.Getenv("FREE_WILL_ENABLED"))
 	fmt.Printf("VOICE_MESSAGES_ENABLED: %s\n", os.Getenv("VOICE_MESSAGES_ENABLED"))
 
-	// Тестируем загрузку конфигурации
-	fmt.Printf("\n=== ТЕСТИРОВАНИЕ CONFIG.LOAD ===\n")
+	// Тестируем загрузку YAML
+	fmt.Printf("\n=== ТЕСТИРОВАНИЕ YAML CONFIG SOURCE ===\n")
+	source := config.NewYAMLConfigSource("configs/luna_bot.yaml")
+	source.SetStrictMode(false)
+	cfgV2, yamlErr := source.Load(context.Background())
+	if yamlErr != nil {
+		fmt.Printf("⚠️  YAML не загружен: %v\n", yamlErr)
+	} else {
+		fmt.Printf("✅ YAML загружен успешно\n")
+		fmt.Printf("   LLM.DefaultProvider: %s\n", cfgV2.LLM.DefaultProvider)
+		fmt.Printf("   Telegram.Timezone: %s\n", cfgV2.Telegram.Timezone)
+		fmt.Printf("   Chat.MinMessages: %d\n", cfgV2.Chat.MinMessages)
+		fmt.Printf("   Summary.IntervalHours: %d\n", cfgV2.Summary.IntervalHours)
+	}
+
+	// Тестируем загрузку конфигурации (legacy)
+	fmt.Printf("\n=== ТЕСТИРОВАНИЕ CONFIG.LOAD (legacy) ===\n")
 	cfg, err := config.Load()
 	if err != nil {
 		log.Fatalf("❌ Ошибка загрузки конфигурации: %v", err)

@@ -1,3 +1,4 @@
+// DEPRECATED: используйте validators.go (ValidateConfigV2). Будет удалён в v3.0.
 package config
 
 import (

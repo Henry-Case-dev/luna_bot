@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log"
 	"os"
 	"os/signal"
@@ -11,9 +12,20 @@ import (
 )
 
 func main() {
+	source := config.NewYAMLConfigSource("configs/luna_bot.yaml")
+	source.SetStrictMode(false)
+	cfgV2, yamlErr := source.Load(context.Background())
+
 	cfg, err := config.Load()
 	if err != nil {
 		log.Fatalf("Ошибка загрузки конфигурации: %v", err)
+	}
+
+	if yamlErr != nil {
+		log.Printf("[WARN] YAML не загружен (%v), используется .env", yamlErr)
+	} else {
+		log.Printf("[INFO] YAML загружен успешно")
+		_ = cfgV2
 	}
 
 	// Принудительно включаем Free Will для тестирования
@@ -27,7 +39,7 @@ func main() {
 	log.Printf("Контекстное окно: %d сообщений", cfg.FreeWillContextWindow)
 	log.Printf("Максимум решений в час: %d", cfg.FreeWillMaxDecisionsPerHour)
 
-	botInstance, err := bot.New(cfg)
+	botInstance, err := bot.New(cfg, nil)
 	if err != nil {
 		log.Fatalf("Ошибка создания бота: %v", err)
 	}

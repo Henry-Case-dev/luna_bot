@@ -1559,3 +1559,43 @@ func (c *Client) GenerateImageWithEdit(ctx context.Context, baseImageData []byte
 
 	return nil, fmt.Errorf("не найдено изображение в ответе API")
 }
+
+// GenerateAudio — обёртка над GenerateAudioFromText для AudioGenerator.
+// DEPRECATED: Используйте capability-интерфейс AudioGenerator напрямую.
+func (c *Client) GenerateAudio(text string, params llm.AudioParams) ([]byte, error) {
+	model := params.Model
+	if model == "" {
+		model = "gemini-2.5-flash-preview-tts"
+	}
+	voiceName := params.VoiceName
+	if voiceName == "" {
+		voiceName = "Zephyr"
+	}
+	return c.GenerateAudioFromText(text, model, voiceName, params.Temperature)
+}
+
+// Info возвращает метаинформацию о провайдере Gemini.
+func (c *Client) Info() llm.ProviderInfo {
+	return llm.ProviderInfo{
+		Name: "gemini",
+		Capabilities: []llm.Capability{
+			llm.CapTextGeneration,
+			llm.CapAudioTranscription,
+			llm.CapEmbedding,
+			llm.CapImageAnalysis,
+			llm.CapImageGeneration,
+			llm.CapAudioGeneration,
+		},
+	}
+}
+
+// Compile-time interface satisfaction checks for Gemini.
+var (
+	_ llm.TextGenerator    = (*Client)(nil)
+	_ llm.AudioTranscriber = (*Client)(nil)
+	_ llm.Embedder         = (*Client)(nil)
+	_ llm.ImageAnalyzer    = (*Client)(nil)
+	_ llm.ImageGenerator   = (*Client)(nil)
+	_ llm.AudioGenerator   = (*Client)(nil)
+	_ llm.Closer           = (*Client)(nil)
+)

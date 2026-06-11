@@ -1,3 +1,4 @@
+// DEPRECATED: используйте YAMLConfigSource из source.go. Будет удалён в v3.0.
 package config
 
 import (
