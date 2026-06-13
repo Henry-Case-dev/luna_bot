@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 	"time"
 
 	_ "github.com/lib/pq" // PostgreSQL driver
@@ -26,7 +27,7 @@ type PostgresStorage struct {
 func NewPostgresStorage(dbHost, dbPort, dbUser, dbPassword, dbName string, contextWindow int, debug bool) (*PostgresStorage, error) {
 	sslmode := os.Getenv("POSTGRESQL_SSLMODE")
 	if sslmode == "" {
-		sslmode = "require"
+		sslmode = "disable"
 	}
 	connStr := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",
 		dbHost, dbPort, dbUser, dbPassword, dbName, sslmode)
@@ -67,6 +68,11 @@ func (ps *PostgresStorage) createTablesIfNotExists() error {
 		return fmt.Errorf("ошибка начала транзакции: %w", err)
 	}
 	defer tx.Rollback()
+
+	// Включаем расширение pgvector (необходимо для типа vector)
+	if _, err := tx.ExecContext(ctx, "CREATE EXTENSION IF NOT EXISTS vector;"); err != nil {
+		return fmt.Errorf("ошибка включения расширения pgvector: %w", err)
+	}
 
 	chatMessagesQuery := `
 	CREATE TABLE IF NOT EXISTS chat_messages (
@@ -118,6 +124,25 @@ func (ps *PostgresStorage) createTablesIfNotExists() error {
 		return fmt.Errorf("ошибка создания таблицы user_profiles: %w", err)
 	}
 
+	chatSettingsQuery := `
+	CREATE TABLE IF NOT EXISTS chat_settings (
+		chat_id BIGINT NOT NULL,
+		conversation_style TEXT DEFAULT '',
+		temperature DOUBLE PRECISION DEFAULT 0.5,
+		model TEXT DEFAULT '',
+		gemini_safety_threshold TEXT DEFAULT '',
+		voice_transcription_enabled BOOLEAN DEFAULT false,
+		direct_reply_limit_enabled BOOLEAN DEFAULT false,
+		direct_reply_limit_count INTEGER DEFAULT 0,
+		direct_reply_limit_duration_minutes INTEGER DEFAULT 0,
+		srach_analysis_enabled BOOLEAN DEFAULT false,
+		photo_analysis_enabled BOOLEAN DEFAULT false,
+		PRIMARY KEY (chat_id)
+	);`
+	if _, err := tx.ExecContext(ctx, chatSettingsQuery); err != nil {
+		return fmt.Errorf("ошибка создания таблицы chat_settings: %w", err)
+	}
+
 	triggerFunctionQuery := `
 	CREATE OR REPLACE FUNCTION update_updated_at_column()
 	RETURNS TRIGGER AS $$
@@ -140,6 +165,67 @@ func (ps *PostgresStorage) createTablesIfNotExists() error {
 		return fmt.Errorf("ошибка создания триггера для user_profiles: %w", err)
 	}
 
+	emotionalStatesQuery := `
+	CREATE TABLE IF NOT EXISTS emotional_states (
+		chat_id BIGINT NOT NULL,
+		joy DOUBLE PRECISION DEFAULT 0,
+		sadness DOUBLE PRECISION DEFAULT 0,
+		anger DOUBLE PRECISION DEFAULT 0,
+		fear DOUBLE PRECISION DEFAULT 0,
+		trust DOUBLE PRECISION DEFAULT 0,
+		disgust DOUBLE PRECISION DEFAULT 0,
+		surprise DOUBLE PRECISION DEFAULT 0,
+		anticipation DOUBLE PRECISION DEFAULT 0,
+		optimism DOUBLE PRECISION DEFAULT 0,
+		contempt DOUBLE PRECISION DEFAULT 0,
+		nostalgia DOUBLE PRECISION DEFAULT 0,
+		anxiety DOUBLE PRECISION DEFAULT 0,
+		aggression DOUBLE PRECISION DEFAULT 0,
+		sentimentality DOUBLE PRECISION DEFAULT 0,
+		curiosity DOUBLE PRECISION DEFAULT 0,
+		cynicism DOUBLE PRECISION DEFAULT 0,
+		uncertainty DOUBLE PRECISION DEFAULT 0,
+		empathy DOUBLE PRECISION DEFAULT 0,
+		irritability DOUBLE PRECISION DEFAULT 0,
+		vulnerability DOUBLE PRECISION DEFAULT 0,
+		confidence DOUBLE PRECISION DEFAULT 0,
+		response_tendency JSONB DEFAULT '{}',
+		intensity DOUBLE PRECISION DEFAULT 0,
+		stability DOUBLE PRECISION DEFAULT 0,
+		last_update TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+		trigger_event TEXT DEFAULT '',
+		created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+		updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+		PRIMARY KEY (chat_id)
+	);`
+	if _, err := tx.ExecContext(ctx, emotionalStatesQuery); err != nil {
+		return fmt.Errorf("ошибка создания таблицы emotional_states: %w", err)
+	}
+
+	emotionalMemoriesQuery := `
+	CREATE TABLE IF NOT EXISTS emotional_memories (
+		id BIGSERIAL PRIMARY KEY,
+		chat_id BIGINT NOT NULL,
+		user_id BIGINT NOT NULL,
+		user_context TEXT DEFAULT '',
+		trigger TEXT DEFAULT '',
+		primary_emotion TEXT DEFAULT '',
+		emotion_intensity DOUBLE PRECISION DEFAULT 0,
+		response TEXT DEFAULT '',
+		outcome TEXT DEFAULT '',
+		success BOOLEAN DEFAULT FALSE,
+		reinforcement DOUBLE PRECISION DEFAULT 0,
+		frequency INT DEFAULT 0,
+		last_accessed TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+		topic_context TEXT DEFAULT '',
+		keywords JSONB DEFAULT '[]',
+		created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+		updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+	);`
+	if _, err := tx.ExecContext(ctx, emotionalMemoriesQuery); err != nil {
+		return fmt.Errorf("ошибка создания таблицы emotional_memories: %w", err)
+	}
+
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("ошибка коммита транзакции: %w", err)
 	}
@@ -147,6 +233,11 @@ func (ps *PostgresStorage) createTablesIfNotExists() error {
 	_, err = ps.db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_user_profiles_chat_user ON user_profiles (chat_id, user_id);`)
 	if err != nil {
 		return fmt.Errorf("ошибка создания индекса idx_user_profiles_chat_user: %w", err)
+	}
+
+	_, err = ps.db.Exec(`CREATE INDEX IF NOT EXISTS idx_emotional_memories_chat_user ON emotional_memories (chat_id, user_id, created_at DESC);`)
+	if err != nil {
+		return fmt.Errorf("ошибка создания индекса idx_emotional_memories_chat_user: %w", err)
 	}
 
 	vectorIndexQuery := `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_chat_messages_embedding 
@@ -270,11 +361,19 @@ func (ps *PostgresStorage) UpdateSrachAnalysisEnabled(chatID int64, enabled bool
 	return ps.updateSingleSetting(chatID, "srach_analysis_enabled", enabled)
 }
 
+func (ps *PostgresStorage) UpdatePhotoAnalysisEnabled(chatID int64, enabled bool) error {
+	return ps.updateSingleSetting(chatID, "photo_analysis_enabled", enabled)
+}
+
 // === Методы, специфичные для MongoDB (заглушки для PostgresStorage) ===
 
 func (ps *PostgresStorage) GetTotalMessagesCount(chatID int64) (int64, error) {
-	log.Printf("[WARN][PostgresStorage] GetTotalMessagesCount вызван для chatID %d, но PostgresStorage не поддерживает эту операцию.", chatID)
-	return 0, fmt.Errorf("GetTotalMessagesCount не поддерживается PostgresStorage")
+	var count int64
+	err := ps.db.QueryRow("SELECT COUNT(*) FROM chat_messages WHERE chat_id = $1", chatID).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("ошибка подсчёта сообщений: %w", err)
+	}
+	return count, nil
 }
 
 func (ps *PostgresStorage) FindMessagesWithoutEmbedding(chatID int64, limit int, skipMessageIDs []int) ([]MongoMessage, error) {
@@ -368,51 +467,430 @@ func (ps *PostgresStorage) AddNegativeExample(chatID int64, message string, time
 	return fmt.Errorf("AddNegativeExample не реализован для PostgresStorage")
 }
 
-// === Методы для работы с эмоциональной системой (заглушки для PostgreSQL) ===
+// === Методы для работы с эмоциональной системой ===
+
+// emotionalColumnWhitelist содержит допустимые имена колонок эмоций для динамических UPDATE-запросов.
+var emotionalColumnWhitelist = map[string]bool{
+	"joy": true, "sadness": true, "anger": true, "fear": true,
+	"trust": true, "disgust": true, "surprise": true, "anticipation": true,
+	"optimism": true, "contempt": true, "nostalgia": true, "anxiety": true,
+	"aggression": true, "sentimentality": true, "curiosity": true, "cynicism": true,
+	"uncertainty": true, "empathy": true, "irritability": true, "vulnerability": true,
+	"confidence": true,
+}
 
 func (ps *PostgresStorage) GetEmotionalState(chatID int64) (*EmotionalState, error) {
-	log.Printf("[PostgresStorage WARN] GetEmotionalState не реализован для PostgreSQL")
-	return nil, nil
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	query := `SELECT chat_id, joy, sadness, anger, fear, trust, disgust, surprise, anticipation,
+		optimism, contempt, nostalgia, anxiety, aggression, sentimentality, curiosity, cynicism,
+		uncertainty, empathy, irritability, vulnerability, confidence,
+		response_tendency, intensity, stability, last_update, trigger_event, created_at, updated_at
+		FROM emotional_states WHERE chat_id = $1`
+
+	state := &EmotionalState{}
+	var responseTendencyJSON sql.NullString
+
+	err := ps.db.QueryRowContext(ctx, query, chatID).Scan(
+		&state.ChatID,
+		&state.Joy, &state.Sadness, &state.Anger, &state.Fear,
+		&state.Trust, &state.Disgust, &state.Surprise, &state.Anticipation,
+		&state.Optimism, &state.Contempt, &state.Nostalgia, &state.Anxiety,
+		&state.Aggression, &state.Sentimentality, &state.Curiosity, &state.Cynicism,
+		&state.Uncertainty, &state.Empathy, &state.Irritability, &state.Vulnerability,
+		&state.Confidence,
+		&responseTendencyJSON,
+		&state.Intensity, &state.Stability, &state.LastUpdate, &state.TriggerEvent,
+		&state.CreatedAt, &state.UpdatedAt,
+	)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		log.Printf("[Postgres GetEmotionalState ERROR] chatID %d: %v", chatID, err)
+		return nil, fmt.Errorf("ошибка получения эмоционального состояния для chatID %d: %w", chatID, err)
+	}
+
+	if responseTendencyJSON.Valid {
+		if err := json.Unmarshal([]byte(responseTendencyJSON.String), &state.ResponseTendency); err != nil {
+			log.Printf("[Postgres GetEmotionalState WARN] chatID %d: ошибка десериализации response_tendency: %v", chatID, err)
+			state.ResponseTendency = make(map[string]float64)
+		}
+	} else {
+		state.ResponseTendency = make(map[string]float64)
+	}
+
+	if ps.debug {
+		log.Printf("[Postgres GetEmotionalState DEBUG] chatID %d: состояние получено (intensity=%.2f)", chatID, state.Intensity)
+	}
+	return state, nil
 }
 
 func (ps *PostgresStorage) SaveEmotionalState(state *EmotionalState) error {
-	log.Printf("[PostgresStorage WARN] SaveEmotionalState не реализован для PostgreSQL")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	responseTendencyJSON := jsonify(state.ResponseTendency)
+	now := time.Now()
+	if state.CreatedAt.IsZero() {
+		state.CreatedAt = now
+	}
+	state.UpdatedAt = now
+	if state.LastUpdate.IsZero() {
+		state.LastUpdate = now
+	}
+
+	query := `INSERT INTO emotional_states (
+		chat_id, joy, sadness, anger, fear, trust, disgust, surprise, anticipation,
+		optimism, contempt, nostalgia, anxiety, aggression, sentimentality, curiosity, cynicism,
+		uncertainty, empathy, irritability, vulnerability, confidence,
+		response_tendency, intensity, stability, last_update, trigger_event, created_at, updated_at
+	) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29)
+	ON CONFLICT (chat_id) DO UPDATE SET
+		joy = EXCLUDED.joy, sadness = EXCLUDED.sadness, anger = EXCLUDED.anger,
+		fear = EXCLUDED.fear, trust = EXCLUDED.trust, disgust = EXCLUDED.disgust,
+		surprise = EXCLUDED.surprise, anticipation = EXCLUDED.anticipation,
+		optimism = EXCLUDED.optimism, contempt = EXCLUDED.contempt,
+		nostalgia = EXCLUDED.nostalgia, anxiety = EXCLUDED.anxiety,
+		aggression = EXCLUDED.aggression, sentimentality = EXCLUDED.sentimentality,
+		curiosity = EXCLUDED.curiosity, cynicism = EXCLUDED.cynicism,
+		uncertainty = EXCLUDED.uncertainty, empathy = EXCLUDED.empathy,
+		irritability = EXCLUDED.irritability, vulnerability = EXCLUDED.vulnerability,
+		confidence = EXCLUDED.confidence,
+		response_tendency = EXCLUDED.response_tendency,
+		intensity = EXCLUDED.intensity, stability = EXCLUDED.stability,
+		last_update = EXCLUDED.last_update, trigger_event = EXCLUDED.trigger_event,
+		updated_at = EXCLUDED.updated_at
+	`
+
+	_, err := ps.db.ExecContext(ctx, query,
+		state.ChatID,
+		state.Joy, state.Sadness, state.Anger, state.Fear,
+		state.Trust, state.Disgust, state.Surprise, state.Anticipation,
+		state.Optimism, state.Contempt, state.Nostalgia, state.Anxiety,
+		state.Aggression, state.Sentimentality, state.Curiosity, state.Cynicism,
+		state.Uncertainty, state.Empathy, state.Irritability, state.Vulnerability,
+		state.Confidence,
+		responseTendencyJSON,
+		state.Intensity, state.Stability, state.LastUpdate, state.TriggerEvent,
+		state.CreatedAt, state.UpdatedAt,
+	)
+	if err != nil {
+		log.Printf("[Postgres SaveEmotionalState ERROR] chatID %d: %v", state.ChatID, err)
+		return fmt.Errorf("ошибка сохранения эмоционального состояния для chatID %d: %w", state.ChatID, err)
+	}
+
+	if ps.debug {
+		log.Printf("[Postgres SaveEmotionalState DEBUG] chatID %d: состояние сохранено (intensity=%.2f)", state.ChatID, state.Intensity)
+	}
 	return nil
 }
 
 func (ps *PostgresStorage) UpdateEmotionalState(chatID int64, emotions map[string]float64, intensity float64, triggerEvent string) error {
-	log.Printf("[PostgresStorage WARN] UpdateEmotionalState не реализован для PostgreSQL")
+	if len(emotions) == 0 {
+		return nil
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	_, err := ps.db.ExecContext(ctx, `INSERT INTO emotional_states (chat_id) VALUES ($1) ON CONFLICT (chat_id) DO NOTHING`, chatID)
+	if err != nil {
+		log.Printf("[Postgres UpdateEmotionalState ERROR] chatID %d: ошибка обеспечения существования строки: %v", chatID, err)
+	}
+
+	var setClauses []string
+	var args []interface{}
+	argIdx := 1
+
+	for col, val := range emotions {
+		if !emotionalColumnWhitelist[col] {
+			log.Printf("[Postgres UpdateEmotionalState WARN] chatID %d: пропущена неизвестная колонка эмоции '%s'", chatID, col)
+			continue
+		}
+		setClauses = append(setClauses, fmt.Sprintf("%s = $%d", col, argIdx))
+		args = append(args, val)
+		argIdx++
+	}
+
+	if len(setClauses) == 0 {
+		return nil
+	}
+
+	setClauses = append(setClauses, fmt.Sprintf("intensity = $%d", argIdx))
+	args = append(args, intensity)
+	argIdx++
+
+	setClauses = append(setClauses, fmt.Sprintf("trigger_event = $%d", argIdx))
+	args = append(args, triggerEvent)
+	argIdx++
+
+	setClauses = append(setClauses, fmt.Sprintf("last_update = $%d", argIdx))
+	args = append(args, time.Now())
+	argIdx++
+
+	setClauses = append(setClauses, fmt.Sprintf("updated_at = $%d", argIdx))
+	args = append(args, time.Now())
+	argIdx++
+
+	updateQuery := fmt.Sprintf(`UPDATE emotional_states SET %s WHERE chat_id = $%d`,
+		strings.Join(setClauses, ", "), argIdx)
+	args = append(args, chatID)
+
+	_, err = ps.db.ExecContext(ctx, updateQuery, args...)
+	if err != nil {
+		log.Printf("[Postgres UpdateEmotionalState ERROR] chatID %d: %v", chatID, err)
+		return fmt.Errorf("ошибка обновления эмоционального состояния для chatID %d: %w", chatID, err)
+	}
+
+	if ps.debug {
+		log.Printf("[Postgres UpdateEmotionalState DEBUG] chatID %d: обновлены эмоции (intensity=%.2f, trigger=%s)", chatID, intensity, triggerEvent)
+	}
 	return nil
 }
 
 func (ps *PostgresStorage) AddEmotionalMemory(memory *EmotionalMemory) error {
-	log.Printf("[PostgresStorage WARN] AddEmotionalMemory не реализован для PostgreSQL")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	keywordsJSON := jsonify(memory.Keywords)
+	now := time.Now()
+	if memory.CreatedAt.IsZero() {
+		memory.CreatedAt = now
+	}
+	memory.UpdatedAt = now
+	if memory.LastAccessed.IsZero() {
+		memory.LastAccessed = now
+	}
+
+	query := `INSERT INTO emotional_memories (
+		chat_id, user_id, user_context, trigger, primary_emotion, emotion_intensity,
+		response, outcome, success, reinforcement, frequency, last_accessed,
+		topic_context, keywords, created_at, updated_at
+	) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`
+
+	_, err := ps.db.ExecContext(ctx, query,
+		memory.ChatID, memory.UserID, memory.UserContext, memory.Trigger,
+		memory.PrimaryEmotion, memory.EmotionIntensity, memory.Response,
+		memory.Outcome, memory.Success, memory.Reinforcement, memory.Frequency,
+		memory.LastAccessed, memory.TopicContext, keywordsJSON,
+		memory.CreatedAt, memory.UpdatedAt,
+	)
+	if err != nil {
+		log.Printf("[Postgres AddEmotionalMemory ERROR] chatID %d userID %d: %v", memory.ChatID, memory.UserID, err)
+		return fmt.Errorf("ошибка добавления эмоциональной памяти: %w", err)
+	}
+
+	if ps.debug {
+		log.Printf("[Postgres AddEmotionalMemory DEBUG] chatID %d userID %d: память добавлена (emotion=%s, intensity=%.2f)", memory.ChatID, memory.UserID, memory.PrimaryEmotion, memory.EmotionIntensity)
+	}
 	return nil
 }
 
 func (ps *PostgresStorage) GetEmotionalMemories(chatID int64, userID int64, limit int) ([]*EmotionalMemory, error) {
-	log.Printf("[PostgresStorage WARN] GetEmotionalMemories не реализован для PostgreSQL")
-	return nil, nil
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	query := `SELECT id, chat_id, user_id, user_context, trigger, primary_emotion, emotion_intensity,
+		response, outcome, success, reinforcement, frequency, last_accessed,
+		topic_context, keywords, created_at, updated_at
+		FROM emotional_memories
+		WHERE chat_id = $1 AND user_id = $2
+		ORDER BY created_at DESC LIMIT $3`
+
+	rows, err := ps.db.QueryContext(ctx, query, chatID, userID, limit)
+	if err != nil {
+		log.Printf("[Postgres GetEmotionalMemories ERROR] chatID %d userID %d: %v", chatID, userID, err)
+		return nil, fmt.Errorf("ошибка получения эмоциональных воспоминаний: %w", err)
+	}
+	defer rows.Close()
+
+	var memories []*EmotionalMemory
+	for rows.Next() {
+		var mem EmotionalMemory
+		var keywordsJSON sql.NullString
+		err := rows.Scan(
+			&mem.ID, &mem.ChatID, &mem.UserID, &mem.UserContext, &mem.Trigger,
+			&mem.PrimaryEmotion, &mem.EmotionIntensity, &mem.Response,
+			&mem.Outcome, &mem.Success, &mem.Reinforcement, &mem.Frequency,
+			&mem.LastAccessed, &mem.TopicContext, &keywordsJSON,
+			&mem.CreatedAt, &mem.UpdatedAt,
+		)
+		if err != nil {
+			log.Printf("[Postgres GetEmotionalMemories ERROR] chatID %d userID %d: ошибка сканирования строки: %v", chatID, userID, err)
+			return nil, fmt.Errorf("ошибка сканирования эмоционального воспоминания: %w", err)
+		}
+		if keywordsJSON.Valid {
+			if err := json.Unmarshal([]byte(keywordsJSON.String), &mem.Keywords); err != nil {
+				log.Printf("[Postgres GetEmotionalMemories WARN] chatID %d userID %d: ошибка десериализации keywords: %v", chatID, userID, err)
+				mem.Keywords = []string{}
+			}
+		} else {
+			mem.Keywords = []string{}
+		}
+		memories = append(memories, &mem)
+	}
+
+	if err := rows.Err(); err != nil {
+		log.Printf("[Postgres GetEmotionalMemories ERROR] chatID %d userID %d: ошибка итерации строк: %v", chatID, userID, err)
+		return nil, fmt.Errorf("ошибка итерации эмоциональных воспоминаний: %w", err)
+	}
+
+	if ps.debug {
+		log.Printf("[Postgres GetEmotionalMemories DEBUG] chatID %d userID %d: получено %d воспоминаний", chatID, userID, len(memories))
+	}
+	return memories, nil
 }
 
 func (ps *PostgresStorage) GetEmotionalMemoriesByEmotion(chatID int64, emotion string, limit int) ([]*EmotionalMemory, error) {
-	log.Printf("[PostgresStorage WARN] GetEmotionalMemoriesByEmotion не реализован для PostgreSQL")
-	return nil, nil
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	query := `SELECT id, chat_id, user_id, user_context, trigger, primary_emotion, emotion_intensity,
+		response, outcome, success, reinforcement, frequency, last_accessed,
+		topic_context, keywords, created_at, updated_at
+		FROM emotional_memories
+		WHERE chat_id = $1 AND primary_emotion = $2
+		ORDER BY created_at DESC LIMIT $3`
+
+	rows, err := ps.db.QueryContext(ctx, query, chatID, emotion, limit)
+	if err != nil {
+		log.Printf("[Postgres GetEmotionalMemoriesByEmotion ERROR] chatID %d emotion %s: %v", chatID, emotion, err)
+		return nil, fmt.Errorf("ошибка получения эмоциональных воспоминаний по эмоции: %w", err)
+	}
+	defer rows.Close()
+
+	var memories []*EmotionalMemory
+	for rows.Next() {
+		var mem EmotionalMemory
+		var keywordsJSON sql.NullString
+		err := rows.Scan(
+			&mem.ID, &mem.ChatID, &mem.UserID, &mem.UserContext, &mem.Trigger,
+			&mem.PrimaryEmotion, &mem.EmotionIntensity, &mem.Response,
+			&mem.Outcome, &mem.Success, &mem.Reinforcement, &mem.Frequency,
+			&mem.LastAccessed, &mem.TopicContext, &keywordsJSON,
+			&mem.CreatedAt, &mem.UpdatedAt,
+		)
+		if err != nil {
+			log.Printf("[Postgres GetEmotionalMemoriesByEmotion ERROR] chatID %d: ошибка сканирования строки: %v", chatID, err)
+			return nil, fmt.Errorf("ошибка сканирования эмоционального воспоминания: %w", err)
+		}
+		if keywordsJSON.Valid {
+			if err := json.Unmarshal([]byte(keywordsJSON.String), &mem.Keywords); err != nil {
+				log.Printf("[Postgres GetEmotionalMemoriesByEmotion WARN] chatID %d: ошибка десериализации keywords: %v", chatID, err)
+				mem.Keywords = []string{}
+			}
+		} else {
+			mem.Keywords = []string{}
+		}
+		memories = append(memories, &mem)
+	}
+
+	if err := rows.Err(); err != nil {
+		log.Printf("[Postgres GetEmotionalMemoriesByEmotion ERROR] chatID %d: ошибка итерации строк: %v", chatID, err)
+		return nil, fmt.Errorf("ошибка итерации эмоциональных воспоминаний: %w", err)
+	}
+
+	if ps.debug {
+		log.Printf("[Postgres GetEmotionalMemoriesByEmotion DEBUG] chatID %d emotion %s: получено %d воспоминаний", chatID, emotion, len(memories))
+	}
+	return memories, nil
 }
 
 func (ps *PostgresStorage) UpdateEmotionalMemory(memory *EmotionalMemory) error {
-	log.Printf("[PostgresStorage WARN] UpdateEmotionalMemory не реализован для PostgreSQL")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	keywordsJSON := jsonify(memory.Keywords)
+	memory.UpdatedAt = time.Now()
+
+	query := `UPDATE emotional_memories SET
+		chat_id = $1, user_id = $2, user_context = $3, trigger = $4,
+		primary_emotion = $5, emotion_intensity = $6, response = $7,
+		outcome = $8, success = $9, reinforcement = $10, frequency = $11,
+		last_accessed = $12, topic_context = $13, keywords = $14, updated_at = $15
+		WHERE id = $16`
+
+	result, err := ps.db.ExecContext(ctx, query,
+		memory.ChatID, memory.UserID, memory.UserContext, memory.Trigger,
+		memory.PrimaryEmotion, memory.EmotionIntensity, memory.Response,
+		memory.Outcome, memory.Success, memory.Reinforcement, memory.Frequency,
+		memory.LastAccessed, memory.TopicContext, keywordsJSON,
+		memory.UpdatedAt, memory.ID,
+	)
+	if err != nil {
+		log.Printf("[Postgres UpdateEmotionalMemory ERROR] id %d: %v", memory.ID, err)
+		return fmt.Errorf("ошибка обновления эмоциональной памяти id %d: %w", memory.ID, err)
+	}
+
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
+		log.Printf("[Postgres UpdateEmotionalMemory WARN] id %d: запись не найдена", memory.ID)
+		return fmt.Errorf("эмоциональная память с id %d не найдена", memory.ID)
+	}
+
+	if ps.debug {
+		log.Printf("[Postgres UpdateEmotionalMemory DEBUG] id %d: память обновлена (emotion=%s)", memory.ID, memory.PrimaryEmotion)
+	}
 	return nil
 }
 
 func (ps *PostgresStorage) CleanupEmotionalMemories(chatID int64, maxAge time.Duration) error {
-	log.Printf("[PostgresStorage WARN] CleanupEmotionalMemories не реализован для PostgreSQL")
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	cutoff := time.Now().Add(-maxAge)
+	query := `DELETE FROM emotional_memories WHERE chat_id = $1 AND created_at < $2`
+
+	result, err := ps.db.ExecContext(ctx, query, chatID, cutoff)
+	if err != nil {
+		log.Printf("[Postgres CleanupEmotionalMemories ERROR] chatID %d: %v", chatID, err)
+		return fmt.Errorf("ошибка очистки эмоциональных воспоминаний для chatID %d: %w", chatID, err)
+	}
+
+	rowsAffected, _ := result.RowsAffected()
+	log.Printf("[Postgres CleanupEmotionalMemories] chatID %d: удалено %d старых воспоминаний (maxAge=%v)", chatID, rowsAffected, maxAge)
 	return nil
 }
 
 func (ps *PostgresStorage) GetEmotionalTrends(chatID int64, since time.Time, limit int) (map[string]float64, error) {
-	log.Printf("[PostgresStorage WARN] GetEmotionalTrends не реализован для PostgreSQL")
-	return nil, nil
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	query := `SELECT primary_emotion, AVG(emotion_intensity) as avg_intensity
+		FROM emotional_memories
+		WHERE chat_id = $1 AND created_at >= $2
+		GROUP BY primary_emotion
+		ORDER BY avg_intensity DESC LIMIT $3`
+
+	rows, err := ps.db.QueryContext(ctx, query, chatID, since, limit)
+	if err != nil {
+		log.Printf("[Postgres GetEmotionalTrends ERROR] chatID %d: %v", chatID, err)
+		return nil, fmt.Errorf("ошибка получения эмоциональных трендов для chatID %d: %w", chatID, err)
+	}
+	defer rows.Close()
+
+	trends := make(map[string]float64)
+	for rows.Next() {
+		var emotion string
+		var avgIntensity float64
+		if err := rows.Scan(&emotion, &avgIntensity); err != nil {
+			log.Printf("[Postgres GetEmotionalTrends ERROR] chatID %d: ошибка сканирования строки: %v", chatID, err)
+			return nil, fmt.Errorf("ошибка сканирования тренда: %w", err)
+		}
+		trends[emotion] = avgIntensity
+	}
+
+	if err := rows.Err(); err != nil {
+		log.Printf("[Postgres GetEmotionalTrends ERROR] chatID %d: ошибка итерации строк: %v", chatID, err)
+		return nil, fmt.Errorf("ошибка итерации трендов: %w", err)
+	}
+
+	if ps.debug {
+		log.Printf("[Postgres GetEmotionalTrends DEBUG] chatID %d: получено %d трендов с %v", chatID, len(trends), since)
+	}
+	return trends, nil
 }
 
 // === Заглушки для MongoDB-специфичных методов (совместимость) ===

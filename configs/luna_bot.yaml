@@ -13,7 +13,7 @@
 llm:
   # Основной провайдер по умолчанию (gemini | deepseek | openrouter)
   # Тип: string, По умолчанию: "gemini"
-  default_provider: "gemini"
+  default_provider: "local"
 
   # Включить fallback на резервного провайдера при ошибках 429/5xx
   # Тип: bool, По умолчанию: true
@@ -31,9 +31,8 @@ llm:
   # Порядок провайдеров для fallback (по убыванию приоритета)
   # Тип: []string, По умолчанию: ["gemini", "deepseek", "openrouter"]
   fallback_provider_order:
+    - "local"
     - "gemini"
-    - "deepseek"
-    - "openrouter"
 
   # Circuit Breaker: защита от каскадных отказов
   circuit_breaker:
@@ -48,7 +47,7 @@ llm:
   # providers — конфигурация каждого LLM-провайдера
   # ------------------------------------------------------------------------
   providers:
-    # --- Gemini ---
+    # --- Gemini (основной fallback) ---
     gemini:
       # Включён ли провайдер
       # Тип: bool, По умолчанию: true
@@ -65,6 +64,11 @@ llm:
       # Базовый URL API (пустая строка — стандартный)
       # Тип: string, По умолчанию: ""
       base_url: ""
+      request_timeout_seconds: 120
+      retry:
+        max_retries: 3
+        retry_delay_ms: 2000
+        backoff_multiplier: 2.0
       # Настройки безопасности (Gemini-specific)
       safety:
         # Отключать встроенные фильтры безопасности Gemini
@@ -113,102 +117,86 @@ llm:
       # Дополнительные параметры (произвольная карта)
       extra: {}
 
-    # --- DeepSeek ---
-    deepseek:
-      # Тип: bool, По умолчанию: true
-      enabled: true
-      # Тип: string (secret)
-      api_key: "${DEEPSEEK_API_KEY}"
-      # Тип: string (secret)
-      reserve_api_key: ""
-      # Тип: int, По умолчанию: 0 (ротация отключена)
-      key_rotation_hours: 0
-      # Тип: string, По умолчанию: "https://api.deepseek.com/v1"
-      base_url: "https://api.deepseek.com/v1"
-      # Тип: string, По умолчанию: ""
-      site_url: ""
-      # Тип: string, По умолчанию: ""
-      site_title: ""
-      safety:
-        bypass_filters: false
-        obfuscate: false
-      models:
-        # Тип: string, По умолчанию: "deepseek-chat"
-        text: "deepseek-chat"
-      temperatures: {}
-      # Тип: bool, По умолчанию: false
-      debug: false
-      extra: {}
+    # --- DISABLED: DeepSeek ---
+    # deepseek:
+    #   enabled: false
+    #   api_key: "${DEEPSEEK_API_KEY}"
+    #   reserve_api_key: ""
+    #   key_rotation_hours: 0
+    #   base_url: "https://api.deepseek.com/v1"
+    #   site_url: ""
+    #   site_title: ""
+    #   safety:
+    #     bypass_filters: false
+    #     obfuscate: false
+    #   models:
+    #     text: "deepseek-chat"
+    #   temperatures: {}
+    #   debug: false
+    #   extra: {}
 
-    # --- OpenRouter ---
-    openrouter:
-      # Тип: bool, По умолчанию: true
-      enabled: true
-      # Тип: string (secret)
-      api_key: "${OPENROUTER_API_KEY}"
-      # Тип: string (secret)
-      reserve_api_key: ""
-      # Тип: int, По умолчанию: 0 (ротация отключена)
-      key_rotation_hours: 0
-      # Тип: string, По умолчанию: "https://openrouter.ai/api/v1"
-      base_url: "https://openrouter.ai/api/v1"
-      # HTTP-Referer для OpenRouter
-      # Тип: string, По умолчанию: ""
-      site_url: ""
-      # X-Title для OpenRouter
-      # Тип: string, По умолчанию: "Luna Bot"
-      site_title: "Luna Bot"
-      safety:
-        bypass_filters: false
-        obfuscate: false
-      models:
-        # Тип: string, По умолчанию: "deepseek/deepseek-chat-v3.1:free"
-        text: "deepseek/deepseek-chat-v3.1:free"
-      temperatures: {}
-      # Тип: bool, По умолчанию: false
-      debug: false
-      extra: {}
+    # --- DISABLED: OpenRouter ---
+    # openrouter:
+    #   enabled: false
+    #   api_key: "${OPENROUTER_API_KEY}"
+    #   reserve_api_key: ""
+    #   key_rotation_hours: 0
+    #   base_url: "https://openrouter.ai/api/v1"
+    #   site_url: ""
+    #   site_title: "Luna Bot"
+    #   safety:
+    #     bypass_filters: false
+    #     obfuscate: false
+    #   models:
+    #     text: "deepseek/deepseek-chat-v3.1:free"
+    #   temperatures: {}
+    #   debug: false
+    #   extra: {}
 
-    # --- ChatGPT / OpenAI (опционально) ---
-    chatgpt:
-      # Тип: bool, По умолчанию: false
-      enabled: false
-      # Тип: string (secret)
-      api_key: "${OPENAI_API_KEY}"
-      reserve_api_key: ""
-      key_rotation_hours: 0
-      base_url: "https://api.openai.com/v1"
-      site_url: ""
-      site_title: ""
-      safety:
-        bypass_filters: false
-        obfuscate: false
-      models:
-        # Тип: string, По умолчанию: "gpt-4o"
-        text: "gpt-4o"
-        # Тип: string, По умолчанию: "dall-e-3"
-        image_gen: "dall-e-3"
-      temperatures: {}
-      debug: false
-      extra: {}
+    # --- DISABLED: ChatGPT / OpenAI ---
+    # chatgpt:
+    #   enabled: false
+    #   api_key: "${OPENAI_API_KEY}"
+    #   reserve_api_key: ""
+    #   key_rotation_hours: 0
+    #   base_url: "https://api.openai.com/v1"
+    #   site_url: ""
+    #   site_title: ""
+    #   safety:
+    #     bypass_filters: false
+    #     obfuscate: false
+    #   models:
+    #     text: "gpt-4o"
+    #     image_gen: "dall-e-3"
+    #   temperatures: {}
+    #   debug: false
+    #   extra: {}
 
     # --- Локальные модели через OpenAI-совместимый API (Ollama / LM Studio) ---
     local:
       # Тип: bool, По умолчанию: false
-      enabled: false
-      api_key: ""
+      enabled: true
+      api_key: "ollama"
       reserve_api_key: ""
       key_rotation_hours: 0
       # Тип: string, По умолчанию: "http://localhost:11434/v1"
-      base_url: "http://localhost:11434/v1"
+      # Для Docker: замени на http://host.docker.internal:11434/v1
+      base_url: "http://host.docker.internal:11434/v1"
       site_url: ""
       site_title: ""
+      request_timeout_seconds: 600
+      retry:
+        max_retries: 2
+        retry_delay_ms: 1000
+        backoff_multiplier: 2.0
       safety:
         bypass_filters: false
         obfuscate: false
       models:
-        # Тип: string, По умолчанию: "llama3.1:8b"
-        text: "llama3.1:8b"
+        # Основная текстовая модель (проверить имя через `ollama list`)
+        # Тип: string, По умолчанию: "hf.co/mradermacher/gemma-4-12B-it-abliterated-uncensored-GGUF:Q6_K"
+        text: "hf.co/mradermacher/gemma-4-12B-it-abliterated-uncensored-GGUF:Q6_K"
+        # Модель для эмбеддингов (опционально, требует `ollama pull nomic-embed-text`)
         # Тип: string, По умолчанию: "nomic-embed-text"
         embed: "nomic-embed-text"
       temperatures: {}
@@ -217,157 +205,99 @@ llm:
 
   # ------------------------------------------------------------------------
   # response_types — маршрутизация «ResponseType → (Provider, Model, Temperature)»
+  # Типы, совпадающие с default (provider: "local", model: "", temperature: 1.0)
+  # удалены — они автоматически используют default.
   # ------------------------------------------------------------------------
   response_types:
-    # --- Базовые типы ---
+    # --- Базовый профиль по умолчанию (fallback для всех неперечисленных типов) ---
     default:
-      # Провайдер (gemini | deepseek | openrouter | chatgpt | local)
-      # Тип: string, По умолчанию: "gemini"
-      provider: "gemini"
-      # Модель (переопределяет models.text провайдера, если задано)
-      # Тип: string, По умолчанию: "" (использовать модель провайдера)
-      model: ""
-      # Температура [0.0, 2.0]
-      # Тип: float64, По умолчанию: 1.0
-      temperature: 1.0
-      # Резервный провайдер при отказе основного
-      # Тип: string, По умолчанию: "deepseek"
-      fallback_provider: "deepseek"
-      # Приоритет (чем меньше, тем выше)
-      # Тип: int, По умолчанию: 0
-      priority: 0
-
-    direct:
-      provider: "gemini"
-      model: ""
-      temperature: 1.0
-      fallback_provider: "deepseek"
-      priority: 0
-
-    serious:
-      provider: "gemini"
-      model: ""
-      temperature: 0.8
-      fallback_provider: "deepseek"
-      priority: 0
-
-    daily_take:
-      provider: "deepseek"
-      model: "deepseek-chat"
-      temperature: 1.2
-      fallback_provider: "openrouter"
-      priority: 0
-
-    summary:
-      provider: "gemini"
-      model: ""
-      temperature: 0.7
-      fallback_provider: "deepseek"
-      priority: 0
-
-    voice_message:
-      provider: "gemini"
+      provider: "local"
       model: ""
       temperature: 1.0
       fallback_provider: ""
       priority: 0
 
+    # --- Типы с нестандартной температурой ---
+    serious:
+      provider: "local"
+      model: ""
+      temperature: 0.8
+      fallback_provider: ""
+      priority: 0
+
+    summary:
+      provider: "local"
+      model: ""
+      temperature: 0.7
+      fallback_provider: ""
+      priority: 0
+
     srach_warning:
-      provider: "gemini"
+      provider: "local"
       model: ""
       temperature: 0.5
       fallback_provider: ""
       priority: 0
 
     srach_analysis:
-      provider: "gemini"
+      provider: "local"
       model: ""
       temperature: 0.5
       fallback_provider: ""
       priority: 0
 
     srach_confirm:
-      provider: "gemini"
+      provider: "local"
       model: ""
       temperature: 0.3
       fallback_provider: ""
       priority: 0
 
-    rate_limit:
-      provider: "gemini"
-      model: ""
-      temperature: 1.0
-      fallback_provider: ""
-      priority: 0
-
-    welcome:
-      provider: "gemini"
-      model: ""
-      temperature: 1.0
-      fallback_provider: ""
-      priority: 0
-
     voice_format:
-      provider: "gemini"
+      provider: "local"
       model: ""
       temperature: 0.3
       fallback_provider: ""
       priority: 0
 
     classify_direct_message:
-      provider: "gemini"
+      provider: "local"
       model: ""
       temperature: 0.3
       fallback_provider: ""
       priority: 0
 
-    direct_reply_limit:
-      provider: "gemini"
-      model: ""
-      temperature: 1.0
-      fallback_provider: ""
-      priority: 0
-
     photo_analysis:
-      provider: "gemini"
+      provider: "local"
       model: ""
       temperature: 0.7
       fallback_provider: ""
       priority: 0
 
-    # --- Классификация и модерация ---
     classify:
-      provider: "gemini"
+      provider: "local"
       model: ""
       temperature: 0.3
       fallback_provider: ""
       priority: 0
 
     moderation:
-      provider: "gemini"
+      provider: "local"
       model: ""
       temperature: 0.3
       fallback_provider: ""
       priority: 0
 
-    # --- Донаты ---
-    donate:
-      provider: "gemini"
-      model: ""
-      temperature: 1.0
-      fallback_provider: ""
-      priority: 0
-
     # --- AutoBio ---
     auto_bio:
-      provider: "gemini"
+      provider: "local"
       model: ""
       temperature: 0.6
       fallback_provider: ""
       priority: 0
 
     auto_bio_update:
-      provider: "gemini"
+      provider: "local"
       model: ""
       temperature: 0.6
       fallback_provider: ""
@@ -375,28 +305,28 @@ llm:
 
     # --- Personality ---
     personality_analysis:
-      provider: "gemini"
+      provider: "local"
       model: ""
       temperature: 0.5
       fallback_provider: ""
       priority: 0
 
     personality_name:
-      provider: "gemini"
+      provider: "local"
       model: ""
       temperature: 0.3
       fallback_provider: ""
       priority: 0
 
     personality_topic:
-      provider: "gemini"
+      provider: "local"
       model: ""
       temperature: 0.4
       fallback_provider: ""
       priority: 0
 
     personality_self:
-      provider: "gemini"
+      provider: "local"
       model: ""
       temperature: 0.6
       fallback_provider: ""
@@ -404,7 +334,7 @@ llm:
 
     # --- Фото ---
     photo:
-      provider: "gemini"
+      provider: "local"
       model: ""
       temperature: 0.7
       fallback_provider: ""
@@ -412,159 +342,96 @@ llm:
 
     # --- Веб-поиск ---
     web_search:
-      provider: "gemini"
+      provider: "local"
       model: ""
       temperature: 0.4
       fallback_provider: ""
       priority: 0
 
     # --- Реакции ---
-    clown_reaction:
-      provider: "gemini"
-      model: ""
-      temperature: 1.0
-      fallback_provider: ""
-      priority: 0
-
     reaction_analysis:
-      provider: "gemini"
+      provider: "local"
       model: ""
       temperature: 0.5
       fallback_provider: ""
       priority: 0
 
-    # --- Анти-повторения ---
+    # --- Типы с нестандартной моделью ---
+    daily_take:
+      provider: "local"
+      model: ""
+      temperature: 1.2
+      fallback_provider: ""
+      priority: 0
+
     anti_repetition:
-      provider: "deepseek"
-      model: "deepseek-chat"
+      provider: "local"
+      model: ""
       temperature: 1.1
-      fallback_provider: "openrouter"
-      priority: 0
-
-    # --- Free Will ---
-    free_will_should_reply:
-      provider: "gemini"
-      model: ""
-      temperature: 0.6
-      fallback_provider: "deepseek"
-      priority: 0
-
-    free_will_response_type:
-      provider: "gemini"
-      model: ""
-      temperature: 0.8
-      fallback_provider: "deepseek"
-      priority: 0
-
-    free_will_direct:
-      provider: "gemini"
-      model: ""
-      temperature: 1.0
-      fallback_provider: "deepseek"
-      priority: 0
-
-    free_will_general:
-      provider: "gemini"
-      model: ""
-      temperature: 1.0
-      fallback_provider: "deepseek"
-      priority: 0
-
-    free_will_context:
-      provider: "gemini"
-      model: ""
-      temperature: 1.0
-      fallback_provider: "deepseek"
+      fallback_provider: ""
       priority: 0
 
     free_will_silence:
-      provider: "deepseek"
-      model: "deepseek-chat"
-      temperature: 1.2
-      fallback_provider: "openrouter"
-      priority: 0
-
-    free_will_mood:
-      provider: "gemini"
+      provider: "local"
       model: ""
-      temperature: 0.5
+      temperature: 1.2
       fallback_provider: ""
       priority: 0
 
     free_will_take:
-      provider: "deepseek"
-      model: "deepseek-chat"
+      provider: "local"
+      model: ""
       temperature: 1.0
-      fallback_provider: "openrouter"
+      fallback_provider: ""
+      priority: 0
+
+    # --- Free Will (Gemini — critical path) ---
+    free_will_should_reply:
+      provider: "gemini"
+      model: "gemini-2.5-flash"
+      temperature: 0.2
+      fallback_provider: "local"
+      priority: 0
+
+    free_will_response_type:
+      provider: "gemini"
+      model: "gemini-2.5-flash"
+      temperature: 0.2
+      fallback_provider: "local"
+      priority: 0
+
+    free_will_direct_response_decision:
+      provider: "gemini"
+      model: "gemini-2.5-flash"
+      temperature: 0.2
+      fallback_provider: "local"
+      priority: 0
+
+    # --- Free Will (остальные, с нестандартной температурой) ---
+    free_will_mood:
+      provider: "local"
+      model: ""
+      temperature: 0.5
+      fallback_provider: ""
       priority: 0
 
     free_will_reaction:
-      provider: "gemini"
+      provider: "local"
       model: ""
       temperature: 0.4
       fallback_provider: ""
       priority: 0
 
-    free_will_direct_response_decision:
-      provider: "gemini"
-      model: ""
-      temperature: 0.6
-      fallback_provider: ""
-      priority: 0
-
-    free_will_direct_response:
-      provider: "gemini"
-      model: ""
-      temperature: 1.0
-      fallback_provider: "deepseek"
-      priority: 0
-
-    # --- Post-Processor ---
-    post_process_single:
-      provider: "gemini"
-      model: ""
-      temperature: 0.8
-      fallback_provider: ""
-      priority: 0
-
-    post_process_short:
-      provider: "gemini"
-      model: ""
-      temperature: 0.8
-      fallback_provider: ""
-      priority: 0
-
-    post_process_long:
-      provider: "gemini"
-      model: ""
-      temperature: 0.7
-      fallback_provider: ""
-      priority: 0
-
-    post_process_intelligent:
-      provider: "gemini"
-      model: ""
-      temperature: 0.8
-      fallback_provider: ""
-      priority: 0
-
-    post_process_summary:
-      provider: "gemini"
-      model: ""
-      temperature: 0.6
-      fallback_provider: ""
-      priority: 0
-
     # --- Causal Learning ---
     causal_analysis:
-      provider: "gemini"
+      provider: "local"
       model: ""
       temperature: 0.7
       fallback_provider: ""
       priority: 0
 
     causal_influence:
-      provider: "gemini"
+      provider: "local"
       model: ""
       temperature: 0.6
       fallback_provider: ""
@@ -572,21 +439,21 @@ llm:
 
     # --- Emotional Learning ---
     emotional_analysis:
-      provider: "gemini"
+      provider: "local"
       model: ""
       temperature: 0.8
       fallback_provider: ""
       priority: 0
 
     emotional_adaptation:
-      provider: "gemini"
+      provider: "local"
       model: ""
       temperature: 0.7
       fallback_provider: ""
       priority: 0
 
     emotional_feedback:
-      provider: "gemini"
+      provider: "local"
       model: ""
       temperature: 0.6
       fallback_provider: ""
@@ -594,7 +461,7 @@ llm:
 
     # --- Belief Learning ---
     belief_analysis:
-      provider: "gemini"
+      provider: "local"
       model: ""
       temperature: 0.5
       fallback_provider: ""
@@ -602,14 +469,14 @@ llm:
 
     # --- Cognitive Architecture ---
     internal_monologue:
-      provider: "gemini"
+      provider: "local"
       model: ""
       temperature: 0.4
       fallback_provider: ""
       priority: 0
 
     self_reflection:
-      provider: "gemini"
+      provider: "local"
       model: ""
       temperature: 0.5
       fallback_provider: ""
@@ -617,7 +484,7 @@ llm:
 
     # --- Social Architecture ---
     relationship_analysis:
-      provider: "gemini"
+      provider: "local"
       model: ""
       temperature: 0.6
       fallback_provider: ""
@@ -625,19 +492,11 @@ llm:
 
     # --- Image Generation ---
     image_gen:
-      provider: "gemini"
+      provider: "local"
       model: ""
       temperature: 0.7
       fallback_provider: ""
       priority: 0
-
-  # ------------------------------------------------------------------------
-  # image_analysis — настройки анализа изображений (старый Config)
-  # ------------------------------------------------------------------------
-  image_analysis:
-    # Включён ли анализ фотографий (через LLM)
-    # Тип: bool, По умолчанию: false
-    enabled: false
 
 # -----------------------------------------------------------------------------
 # tts — Text-to-Speech
@@ -645,7 +504,7 @@ llm:
 tts:
   # Основной TTS-провайдер (elevenlabs | gemini_tts)
   # Тип: string, По умолчанию: "elevenlabs"
-  provider: "elevenlabs"
+  provider: ""
   # Резервный TTS-провайдер при недоступности основного
   # Тип: string, По умолчанию: "gemini_tts"
   fallback: "gemini_tts"
@@ -724,13 +583,15 @@ telegram:
     - "luna"
   # Список ID администраторов
   # Тип: []int64, По умолчанию: []
-  admin_ids: []
+  admin_ids:
+    - 5885953495
   # Список Telegram-username администраторов (через запятую в .env)
   # Тип: []string, По умолчанию: []
-  admin_usernames: []
+  admin_usernames:
+    - "Lightnight25"
   # Режим отладки (включает расширенное логирование)
   # Тип: bool, По умолчанию: false
-  debug: false
+  debug: true
   # Часовой пояс (IANA timezone, e.g. "Asia/Yekaterinburg")
   # Тип: string, По умолчанию: "Asia/Yekaterinburg"
   timezone: "Asia/Yekaterinburg"
@@ -767,7 +628,7 @@ chat:
 summary:
   # Интервал суточного саммари в часах (0 — выключено)
   # Тип: int, По умолчанию: 0
-  interval_hours: 0
+  interval_hours: 4
   # Максимальное количество частей при разбивке длинного саммари
   # Тип: int, По умолчанию: 5
   max_parts: 5
@@ -868,7 +729,7 @@ donate:
 free_will:
   # Включён ли Free Will (автономные сообщения)
   # Тип: bool, По умолчанию: false
-  enabled: false
+  enabled: true
   # Интервалы между проверками необходимости ответа
   intervals:
     # Минимальный интервал (минуты)
@@ -888,7 +749,7 @@ free_will:
   max_decisions_per_hour: 10
   # Вероятность выбора голосового сообщения (если доступно)
   # Тип: float64, По умолчанию: 0.3
-  voice_probability: 0.3
+  voice_probability: 0.0
   # Настройки реакции на тишину
   silence:
     # Минимальное время тишины для реакции (минуты)
@@ -926,7 +787,7 @@ free_will:
   image_generation:
     # Максимум решений о генерации изображений за интервал
     # Тип: int, По умолчанию: 3
-    max_per_interval: 3
+    max_per_interval: 0
     # Интервал сброса лимита (часы)
     # Тип: int, По умолчанию: 6
     interval_hours: 6
@@ -950,7 +811,7 @@ free_will:
 voice_messages:
   # Включены ли голосовые сообщения
   # Тип: bool, По умолчанию: true
-  enabled: true
+  enabled: false
   # Интервал отправки голосовых сообщений (кол-во текстовых сообщений между)
   interval:
     # Минимальный интервал
@@ -1053,83 +914,6 @@ disambiguation:
   enabled: true
 
 # -----------------------------------------------------------------------------
-# message_post_processor — постобработка сообщений
-# -----------------------------------------------------------------------------
-message_post_processor:
-  # Включён ли постпроцессор
-  # Тип: bool, По умолчанию: true
-  enabled: true
-  # Включена ли рандомизация выбора типа постобработки
-  # Тип: bool, По умолчанию: true
-  randomization_enabled: true
-  # Вероятности выбора типа постобработки
-  probabilities:
-    # Вероятность постобработки одиночных слов
-    # Тип: float64, По умолчанию: 0.20
-    single_word: 0.20
-    # Вероятность постобработки коротких предложений
-    # Тип: float64, По умолчанию: 0.35
-    short_sentences: 0.35
-    # Вероятность постобработки длинных сообщений
-    # Тип: float64, По умолчанию: 0.25
-    long_messages: 0.25
-  # Настройки длины сообщений
-  length:
-    # Минимальная длина сообщения для постобработки
-    # Тип: int, По умолчанию: 10
-    min: 10
-    # Максимальная длина сообщения для постобработки
-    # Тип: int, По умолчанию: 2000
-    max: 2000
-    # Порог «длинного сообщения» (символы)
-    # Тип: int, По умолчанию: 100
-    long_message_threshold: 100
-    # Порог принудительной длинной обработки (символы)
-    # Тип: int, По умолчанию: 200
-    force_long_processing_threshold: 200
-  # Настройки производительности
-  performance:
-    # Таймаут обработки (сек)
-    # Тип: int, По умолчанию: 15
-    timeout_seconds: 15
-    # Температура для постобработки
-    # Тип: float64, По умолчанию: 0.9
-    temperature: 0.9
-  # Настройки кэширования
-  cache:
-    # Включён ли кэш результатов постобработки
-    # Тип: bool, По умолчанию: true
-    enabled: true
-    # Время жизни кэша (минуты)
-    # Тип: int, По умолчанию: 30
-    ttl_minutes: 30
-    # Кэш замен имён пользователей
-    replacement_cache:
-      # Включён ли кэш замен
-      # Тип: bool, По умолчанию: true
-      enabled: true
-      # Время жизни кэша замен (минуты)
-      # Тип: int, По умолчанию: 10
-      ttl_minutes: 10
-  # Типы ответов, исключённые из постобработки
-  # Тип: []string, По умолчанию: ["system", "error", "admin"]
-  exclude_types:
-    - "system"
-    - "error"
-    - "admin"
-  # Исключать ли еженедельное саммари из постобработки
-  # Тип: bool, По умолчанию: true
-  weekly_summary_exclude: true
-  # Настройки отладки постпроцессора
-  debug:
-    # Логирование работы постпроцессора
-    # Тип: bool, По умолчанию: false
-    logging: false
-    # Логирование оригинальных сообщений до обработки
-    # Тип: bool, По умолчанию: false
-    log_original_messages: false
-
-# -----------------------------------------------------------------------------
 # auto_bio — автоматический анализ профилей пользователей
 # -----------------------------------------------------------------------------
 auto_bio:
@@ -1181,9 +965,9 @@ reactions:
   enabled: true
   # Настройки реакции на «клоунов» (троллей)
   clown:
-    # Вероятность ответа клоуну (проценты, 0-100)
-    # Тип: int, По умолчанию: 40
-    response_probability: 40
+    # Вероятность ответа клоуну (0.0-1.0)
+    # Тип: float64, По умолчанию: 0.4
+    response_probability: 0.4
     # Cooldown между ответами от одного пользователя (сек)
     # Тип: int, По умолчанию: 30
     cooldown_seconds: 30
@@ -1196,8 +980,8 @@ reactions:
 # -----------------------------------------------------------------------------
 web_search:
   # Включён ли веб-поиск
-  # Тип: bool, По умолчанию: true
-  enabled: true
+  # Тип: bool, По умолчанию: false
+  enabled: false
   # API-ключ Google Custom Search
   # Тип: string (secret)
   google_api_key: "${GOOGLE_SEARCH_API_KEY}"
@@ -1255,6 +1039,12 @@ emotional_learning:
   # Срок хранения эмоциональных воспоминаний (дни)
   # Тип: int, По умолчанию: 30
   memory_retention_days: 30
+  # Минимальное количество сообщений в чате для запуска анализа
+  # Тип: int, По умолчанию: 20
+  min_messages_for_analysis: 20
+  # Минимальный интервал между повторными анализами одного пользователя (часы)
+  # Тип: int, По умолчанию: 6
+  analysis_debounce_hours: 6
 
 # -----------------------------------------------------------------------------
 # belief_learning — система убеждений
@@ -1346,7 +1136,7 @@ storage:
   postgresql:
     # Хост
     # Тип: string, По умолчанию: "localhost"
-    host: "localhost"
+    host: "${POSTGRESQL_HOST:-localhost}"
     # Порт
     # Тип: int, По умолчанию: 5432
     port: 5432
@@ -1462,6 +1252,14 @@ embedding:
     state_file: "./migration_state.json"
 
 # -----------------------------------------------------------------------------
+# diagnostics — диагностические флаги для отладки
+# -----------------------------------------------------------------------------
+diagnostics:
+  # Отключить загрузку профилей пользователей в контекст (для изоляции проблемы галлюцинаций)
+  # Тип: bool, По умолчанию: false
+  disable_user_profiles: false
+
+# -----------------------------------------------------------------------------
 # prompts — промпты для всех подсистем
 # -----------------------------------------------------------------------------
 prompts:
@@ -1469,88 +1267,10 @@ prompts:
   # Тип: string, По умолчанию: "files"
   source: "files"
 
-  # Пути к .txt файлам промптов (относительно internal/bot/prompts/ или абсолютные)
-  files:
-    # Базовые промпты
-    default: "internal/bot/prompts/default.txt"
-    direct: "internal/bot/prompts/direct.txt"
-    daily_take: "internal/bot/prompts/daily_take.txt"
-    summary: "internal/bot/prompts/summary.txt"
-    weekly_summary: "internal/bot/prompts/weekly_summary.txt"
-    voice_message: "internal/bot/prompts/voice_message.txt"
-    voice_format: "internal/bot/prompts/voice_format.txt"
-    welcome: "internal/bot/prompts/welcome.txt"
-    rate_limit: "internal/bot/prompts/rate_limit.txt"
-    donate: "internal/bot/prompts/donate.txt"
-    # Классификация и модерация
-    classify_direct_message: "internal/bot/prompts/classify_direct_message.txt"
-    serious_direct: "internal/bot/prompts/serious_direct.txt"
-    direct_reply_limit: "internal/bot/prompts/direct_reply_limit.txt"
-    # Срач
-    srach_warning: "internal/bot/prompts/srach_warning.txt"
-    srach_analysis: "internal/bot/prompts/srach_analysis.txt"
-    srach_confirm: "internal/bot/prompts/srach_confirm.txt"
-    # Фото
-    photo_analysis: "internal/bot/prompts/photo_analysis.txt"
-    # AutoBio
-    auto_bio_initial_analysis: "internal/bot/prompts/auto_bio_initial_analysis.txt"
-    auto_bio_update: "internal/bot/prompts/auto_bio_update.txt"
-    # Personality
-    personality_analysis: "internal/bot/prompts/personality_analysis.txt"
-    personality_name_analysis: "internal/bot/prompts/personality_name_analysis.txt"
-    personality_topic_analysis: "internal/bot/prompts/personality_topic_analysis.txt"
-    personality_self_update: "internal/bot/prompts/personality_self_update.txt"
-    # Реакции
-    clown_reaction: "internal/bot/prompts/clown_reaction.txt"
-    reaction_analysis: "internal/bot/prompts/reaction_analysis.txt"
-    # Веб-поиск
-    web_search_trigger: "internal/bot/prompts/web_search_trigger.txt"
-    # Free Will
-    free_will_should_reply: "internal/bot/prompts/free_will_should_reply.txt"
-    free_will_response_type: "internal/bot/prompts/free_will_response_type.txt"
-    free_will_reaction: "internal/bot/prompts/free_will_reaction.txt"
-    free_will_direct: "internal/bot/prompts/free_will_direct.txt"
-    free_will_general: "internal/bot/prompts/free_will_general.txt"
-    free_will_context: "internal/bot/prompts/free_will_context.txt"
-    free_will_silence: "internal/bot/prompts/free_will_silence.txt"
-    free_will_mood_analysis: "internal/bot/prompts/free_will_mood_analysis.txt"
-    free_will_take_response: "internal/bot/prompts/free_will_take_response.txt"
-    free_will_direct_response_decision: "internal/bot/prompts/free_will_direct_response_decision.txt"
-    free_will_direct_response: "internal/bot/prompts/free_will_direct_response.txt"
-    free_will_imagegen: "internal/bot/prompts/free_will_imagegen.txt"
-    image_gen_pre_prompt: "internal/bot/prompts/image_gen_pre_prompt.txt"
-    # Anti-Repetition
-    anti_repetition_rework: "internal/bot/prompts/anti_repetition_rework.txt"
-    # Message Post-Processor
-    message_post_processor_single_word: "internal/bot/prompts/message_post_processor_single_word.txt"
-    message_post_processor_short_sentences: "internal/bot/prompts/message_post_processor_short_sentences.txt"
-    message_post_processor_long_messages: "internal/bot/prompts/message_post_processor_long_messages.txt"
-    message_post_processor_intelligent: "internal/bot/prompts/message_post_processor_intelligent.txt"
-    message_post_processor_summary: "internal/bot/prompts/message_post_processor_summary.txt"
-    # Causal Learning
-    causal_analysis: "internal/bot/prompts/causal_analysis.txt"
-    causal_influence: "internal/bot/prompts/causal_influence.txt"
-    # Emotional Learning
-    emotional_analysis: "internal/bot/prompts/emotional_analysis.txt"
-    emotional_adaptation: "internal/bot/prompts/emotional_adaptation.txt"
-    emotional_feedback: "internal/bot/prompts/emotional_feedback.txt"
-    # Belief Learning
-    belief_analysis: "internal/bot/prompts/belief_analysis.txt"
-    # Cognitive Architecture
-    internal_monologue: "internal/bot/prompts/internal_monologue.txt"
-    self_reflection: "internal/bot/prompts/self_reflection.txt"
-    # Social Architecture
-    relationship_analysis: "internal/bot/prompts/relationship_analysis.txt"
-
   # Инлайн-промпты (при source: "inline" или "both" имеют приоритет над файлами)
+  # Промпты загружаются автоматически через prompts.LoadPrompt() из .txt файлов.
+  # Заполните поля ниже, чтобы переопределить промпты inline без правки файлов.
   inline:
-    # Пример:
-    # default: "Ты — участник чата по имени Luna. Отвечай дружелюбно."
-    # direct: "Отвечай прямо и по делу на обращение к тебе."
-    # daily_take: "Сгенерируй провокационную тему для обсуждения."
-    # summary: "Создай краткое саммари обсуждения."
-    # welcome: "Привет, чат! Я ваш новый спутник в беседе."
-    # Оставлены пустыми — заполняются администратором при необходимости
     default: ""
     direct: ""
     daily_take: ""
@@ -1559,6 +1279,9 @@ prompts:
     voice_message: ""
     voice_format: ""
     welcome: ""
+    startup_greeting: ""
+    personality_context: ""
+    style_instructions: ""
     rate_limit: ""
     donate: ""
     classify_direct_message: ""
@@ -1591,11 +1314,6 @@ prompts:
     free_will_imagegen: ""
     image_gen_pre_prompt: ""
     anti_repetition_rework: ""
-    message_post_processor_single_word: ""
-    message_post_processor_short_sentences: ""
-    message_post_processor_long_messages: ""
-    message_post_processor_intelligent: ""
-    message_post_processor_summary: ""
     causal_analysis: ""
     causal_influence: ""
     emotional_analysis: ""

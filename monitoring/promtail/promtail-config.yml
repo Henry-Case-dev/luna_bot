@@ -18,13 +18,5 @@ scrape_configs:
           host: localhost
           __path__: /var/log/luna_bot/*.log
 
-  - job_name: container-logs
-    docker_sd_configs:
-      - host: unix:///var/run/docker.sock
-        refresh_interval: 5s
-    relabel_configs:
-      - source_labels: [__meta_docker_container_name]
-        regex: "/(luna_bot.*)"
-        target_label: container
-      - source_labels: [__meta_docker_container_log_stream]
-        target_label: stream
+  # Docker container log discovery отключён из-за несовместимости версий API.
+  # Логи собираются через файловый static_config выше.

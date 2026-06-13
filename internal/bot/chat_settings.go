@@ -105,8 +105,6 @@ func getSettingsKeyboard(dbSettings *storage.ChatSettings, cfg *config.Config) t
 	if dbSettings.SrachAnalysisEnabled != nil { // Если в БД есть значение (не nil)
 		srachEnabled = *dbSettings.SrachAnalysisEnabled // Используем его
 	}
-	// TODO: Удалить эту заглушку после реализации чтения из dbSettings
-	// srachEnabled := false // ЗАГЛУШКА
 	srachText, srachCallback := formatEnabled("🤬 Анализ срачей", "🤬 Анализ срачей", srachEnabled, "toggle_srach_analysis", "toggle_srach_analysis")
 	srachRow := []tgbotapi.InlineKeyboardButton{
 		tgbotapi.NewInlineKeyboardButtonData(srachText, srachCallback),
@@ -153,7 +151,13 @@ func getSettingsKeyboard(dbSettings *storage.ChatSettings, cfg *config.Config) t
 		rows = append(rows, limitValueRow)
 	}
 
-	// 6. Добавляем кнопку "Назад"
+	// 6. Статус систем
+	statusRow := []tgbotapi.InlineKeyboardButton{
+		tgbotapi.NewInlineKeyboardButtonData("📊 Статус систем", "status"),
+	}
+	rows = append(rows, statusRow)
+
+	// 7. Добавляем кнопку "Назад"
 	backRow := []tgbotapi.InlineKeyboardButton{
 		tgbotapi.NewInlineKeyboardButtonData("⬅️ Назад", "back_to_main"),
 	}

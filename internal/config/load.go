@@ -24,11 +24,7 @@ func Load() (*Config, error) {
 	// --- Загрузка переменных LLM ---
 	llmProviderStr := strings.ToLower(getEnvOrDefault("LLM_PROVIDER", string(ProviderGemini)))
 	defaultPrompt := getEnvOrDefault("DEFAULT_PROMPT", "Ты - участник чата.")
-	directPrompt := getEnvOrDefault("DIRECT_PROMPT", "Отвечай прямо и по делу.")
-	defaultConversationStyle := getEnvOrDefault("DEFAULT_CONVERSATION_STYLE", "witty")
-	defaultTemperature := parseFloatOrDefault(getEnvOrDefault("DEFAULT_TEMPERATURE", "0.9"), 0.9)
-	defaultModel := getEnvOrDefault("DEFAULT_MODEL", "gemini-pro")
-	defaultSafetyThreshold := getEnvOrDefault("DEFAULT_SAFETY_THRESHOLD", "BLOCK_NONE")
+	defaultTemperature := parseFloatOrDefault(getEnvOrDefault("DEFAULT_TEMPERATURE", "0.7"), 0.7)
 
 	// --- Загрузка переменных Gemini ---
 	geminiAPIKey := getEnvOrDefault("GEMINI_API_KEY", "")
@@ -36,10 +32,10 @@ func Load() (*Config, error) {
 	geminiEmbeddingModelName := getEnvOrDefault("GEMINI_EMBEDDING_MODEL_NAME", "embedding-001")
 
 	// --- НОВЫЙ КОД: Загрузка температур Gemini ---
-	geminiTemperatureNormalStr := getEnvOrDefault("GEMINI_TEMPERATURE_NORMAL", "1.5")
-	geminiTemperatureNormal := parseFloatOrDefault(geminiTemperatureNormalStr, 1.5)
-	geminiTemperatureSeriousStr := getEnvOrDefault("GEMINI_TEMPERATURE_SERIOUS", "0.9")
-	geminiTemperatureSerious := parseFloatOrDefault(geminiTemperatureSeriousStr, 0.9)
+	geminiTemperatureNormalStr := getEnvOrDefault("GEMINI_TEMPERATURE_NORMAL", "0.7")
+	geminiTemperatureNormal := parseFloatOrDefault(geminiTemperatureNormalStr, 0.7)
+	geminiTemperatureSeriousStr := getEnvOrDefault("GEMINI_TEMPERATURE_SERIOUS", "0.4")
+	geminiTemperatureSerious := parseFloatOrDefault(geminiTemperatureSeriousStr, 0.4)
 	// --- КОНЕЦ НОВОГО КОДА ---
 
 	// --- Загрузка отдельных настроек для аудио и изображений ---
@@ -72,7 +68,6 @@ func Load() (*Config, error) {
 	}
 
 	// --- Загрузка переменных для прямых обращений ---
-	directPromptEnabled := parseBoolOrDefault(getEnvOrDefault("DIRECT_PROMPT_ENABLED", "true"), true)
 	classifyDirectMessagePrompt := getEnvOrDefault("CLASSIFY_DIRECT_MESSAGE_PROMPT", "Классифицируй сообщение как serious или casual")
 	seriousDirectPrompt := getEnvOrDefault("SERIOUS_DIRECT_PROMPT", "Дай серьезный ответ")
 
@@ -121,7 +116,7 @@ func Load() (*Config, error) {
 	mongoSettingsCollection := getEnvOrDefault("MONGODB_SETTINGS_COLLECTION", "chat_settings")
 
 	// --- Загрузка прочих переменных ---
-	storageTypeStr := strings.ToLower(getEnvOrDefault("STORAGE_TYPE", string(StorageTypeMongo)))
+	storageTypeStr := strings.ToLower(getEnvOrDefault("STORAGE_TYPE", string(StorageTypePostgres)))
 	welcomePrompt := getEnvOrDefault("WELCOME_PROMPT", "Привет, чат! Я ваш новый спутник в беседе. Погнали!")
 	voiceFormatPrompt := getEnvOrDefault("VOICE_FORMAT_PROMPT", "Расставь знаки препинания и разбей на абзацы")
 
@@ -142,10 +137,6 @@ func Load() (*Config, error) {
 	weeklySummaryMaxParts := parseIntOrDefault(getEnvOrDefault("WEEKLY_SUMMARY_MAX_PARTS", "5"), 5)
 	summaryMaxParts := parseIntOrDefault(getEnvOrDefault("SUMMARY_MAX_PARTS", "5"), 5)
 
-	// Настройки поиска саммари
-	weeklySummarySearchMethod := getEnvOrDefault("WEEKLY_SUMMARY_SEARCH_METHOD", "both")
-	summaryFlagsEnabled := parseBoolOrDefault(getEnvOrDefault("SUMMARY_FLAGS_ENABLED", "true"), true)
-	summaryKeywordsEnabled := parseBoolOrDefault(getEnvOrDefault("SUMMARY_KEYWORDS_ENABLED", "true"), true)
 	weeklySummaryPrompt := getEnvOrDefault("WEEKLY_SUMMARY_PROMPT", "Создай еженедельное саммари на основе дневных саммари")
 	// --- Конец загрузки настроек еженедельного саммари ---
 	contextWindow := parseIntOrDefault(getEnvOrDefault("CONTEXT_WINDOW", "10"), 10)
@@ -399,52 +390,6 @@ func Load() (*Config, error) {
 	antiRepetitionLocalReworkEnabled := parseBoolOrDefault(getEnvOrDefault("ANTI_REPETITION_LOCAL_REWORK_ENABLED", "true"), true)
 	antiRepetitionLocalReworkMaxLength := parseIntOrDefault(getEnvOrDefault("ANTI_REPETITION_LOCAL_REWORK_MAX_LENGTH", "50"), 50)
 
-	// --- Загрузка настроек Message Post-Processor ---
-	messagePostProcessorEnabled := parseBoolOrDefault(getEnvOrDefault("MESSAGE_POST_PROCESSOR_ENABLED", "true"), true)
-	messagePostProcessorRandomizationEnabled := parseBoolOrDefault(getEnvOrDefault("MESSAGE_POST_PROCESSOR_RANDOMIZATION_ENABLED", "true"), true)
-
-	// Вероятности для разных типов промптов
-	messagePostProcessorSingleWordProbability := parseFloatOrDefault(getEnvOrDefault("MESSAGE_POST_PROCESSOR_SINGLE_WORD_PROBABILITY", "0.20"), 0.20)
-	messagePostProcessorShortSentencesProbability := parseFloatOrDefault(getEnvOrDefault("MESSAGE_POST_PROCESSOR_SHORT_SENTENCES_PROBABILITY", "0.35"), 0.35)
-	messagePostProcessorLongMessagesProbability := parseFloatOrDefault(getEnvOrDefault("MESSAGE_POST_PROCESSOR_LONG_MESSAGES_PROBABILITY", "0.25"), 0.25)
-
-	// Промпты для постобработки
-	messagePostProcessorSingleWordPrompt := getEnvOrDefault("MESSAGE_POST_PROCESSOR_SINGLE_WORD_PROMPT", "")
-	messagePostProcessorShortSentencesPrompt := getEnvOrDefault("MESSAGE_POST_PROCESSOR_SHORT_SENTENCES_PROMPT", "")
-	messagePostProcessorLongMessagesPrompt := getEnvOrDefault("MESSAGE_POST_PROCESSOR_LONG_MESSAGES_PROMPT", "")
-	messagePostProcessorIntelligentPrompt := getEnvOrDefault("MESSAGE_POST_PROCESSOR_INTELLIGENT_PROMPT", "")
-	messagePostProcessorSummaryPrompt := getEnvOrDefault("MESSAGE_POST_PROCESSOR_SUMMARY_PROMPT", "")
-
-	// Настройки длины сообщений
-	messagePostProcessorMinLength := parseIntOrDefault(getEnvOrDefault("MESSAGE_POST_PROCESSOR_MIN_LENGTH", "10"), 10)
-	messagePostProcessorMaxLength := parseIntOrDefault(getEnvOrDefault("MESSAGE_POST_PROCESSOR_MAX_LENGTH", "2000"), 2000)
-	messagePostProcessorLongMessageThreshold := parseIntOrDefault(getEnvOrDefault("MESSAGE_POST_PROCESSOR_LONG_MESSAGE_THRESHOLD", "100"), 100)
-	messagePostProcessorForceLongProcessingThreshold := parseIntOrDefault(getEnvOrDefault("MESSAGE_POST_PROCESSOR_FORCE_LONG_PROCESSING_THRESHOLD", "200"), 200)
-
-	// Настройки производительности
-	messagePostProcessorTimeoutSeconds := parseIntOrDefault(getEnvOrDefault("MESSAGE_POST_PROCESSOR_TIMEOUT_SECONDS", "15"), 15)
-	messagePostProcessorTemperature := parseFloatOrDefault(getEnvOrDefault("MESSAGE_POST_PROCESSOR_TEMPERATURE", "0.9"), 0.9)
-
-	// Настройки кэширования
-	messagePostProcessorCacheEnabled := parseBoolOrDefault(getEnvOrDefault("MESSAGE_POST_PROCESSOR_CACHE_ENABLED", "true"), true)
-	messagePostProcessorCacheTTLMinutes := parseIntOrDefault(getEnvOrDefault("MESSAGE_POST_PROCESSOR_CACHE_TTL_MINUTES", "30"), 30)
-
-	// Настройки исключений
-	messagePostProcessorExcludeTypesStr := getEnvOrDefault("MESSAGE_POST_PROCESSOR_EXCLUDE_TYPES", "system,error,admin")
-	messagePostProcessorExcludeTypes := strings.Split(messagePostProcessorExcludeTypesStr, ",")
-	for i := range messagePostProcessorExcludeTypes {
-		messagePostProcessorExcludeTypes[i] = strings.TrimSpace(messagePostProcessorExcludeTypes[i])
-	}
-	messagePostProcessorWeeklySummaryExclude := parseBoolOrDefault(getEnvOrDefault("MESSAGE_POST_PROCESSOR_WEEKLY_SUMMARY_EXCLUDE", "true"), true)
-
-	// Настройки отладки
-	messagePostProcessorDebugLogging := parseBoolOrDefault(getEnvOrDefault("MESSAGE_POST_PROCESSOR_DEBUG_LOGGING", "true"), true)
-	messagePostProcessorLogOriginalMessages := parseBoolOrDefault(getEnvOrDefault("MESSAGE_POST_PROCESSOR_LOG_ORIGINAL_MESSAGES", "true"), true)
-
-	// Настройки кэша замен имен пользователей
-	messagePostProcessorReplacementCacheEnabled := parseBoolOrDefault(getEnvOrDefault("MESSAGE_POST_PROCESSOR_REPLACEMENT_CACHE_ENABLED", "true"), true)
-	messagePostProcessorReplacementCacheTTLMinutes := parseIntOrDefault(getEnvOrDefault("MESSAGE_POST_PROCESSOR_REPLACEMENT_CACHE_TTL_MINUTES", "10"), 10)
-
 	// --- Загрузка настроек каузального обучения (Этап 1) ---
 	causalLearningEnabled := parseBoolOrDefault(getEnvOrDefault("CAUSAL_LEARNING_ENABLED", "false"), false)
 
@@ -474,6 +419,8 @@ func Load() (*Config, error) {
 	emotionalAnalysisIntervalHours := parseIntOrDefault(getEnvOrDefault("EMOTIONAL_ANALYSIS_INTERVAL_HOURS", "2"), 2)
 	emotionalAnalysisLookbackMessages := parseIntOrDefault(getEnvOrDefault("EMOTIONAL_ANALYSIS_LOOKBACK_MESSAGES", "100"), 100)
 	emotionalMemoryRetentionDays := parseIntOrDefault(getEnvOrDefault("EMOTIONAL_MEMORY_RETENTION_DAYS", "30"), 30)
+	emotionalMinMessagesForAnalysis := parseIntOrDefault(getEnvOrDefault("EMOTIONAL_MIN_MESSAGES_FOR_ANALYSIS", "20"), 20)
+	emotionalAnalysisDebounceHours := parseIntOrDefault(getEnvOrDefault("EMOTIONAL_ANALYSIS_DEBOUNCE_HOURS", "6"), 6)
 
 	emotionalAnalysisPrompt := getEnvOrDefault("EMOTIONAL_ANALYSIS_PROMPT", "")
 	emotionalAnalysisPromptProvider := getEnvOrDefault("EMOTIONAL_ANALYSIS_PROMPT_PROVIDER", "gemini")
@@ -559,12 +506,7 @@ func Load() (*Config, error) {
 		TelegramToken:                   telegramToken,
 		LLMProvider:                     LLMProvider(llmProviderStr),
 		DefaultPrompt:                   defaultPrompt,
-		DirectPrompt:                    directPrompt,
-		DirectPromptEnabled:             directPromptEnabled,
-		DefaultConversationStyle:        defaultConversationStyle,
 		DefaultTemperature:              defaultTemperature,
-		DefaultModel:                    defaultModel,
-		DefaultSafetyThreshold:          defaultSafetyThreshold,
 		GeminiAPIKey:                    geminiAPIKey,
 		GeminiModelName:                 geminiModelName,
 		GeminiTemperatureNormal:         geminiTemperatureNormal,
@@ -743,30 +685,6 @@ func Load() (*Config, error) {
 		AntiRepetitionReworkPrompt:                        antiRepetitionReworkPrompt,
 		AntiRepetitionLocalReworkEnabled:                  antiRepetitionLocalReworkEnabled,
 		AntiRepetitionLocalReworkMaxLength:                antiRepetitionLocalReworkMaxLength,
-		MessagePostProcessorEnabled:                       messagePostProcessorEnabled,
-		MessagePostProcessorRandomizationEnabled:          messagePostProcessorRandomizationEnabled,
-		MessagePostProcessorSingleWordProbability:         messagePostProcessorSingleWordProbability,
-		MessagePostProcessorShortSentencesProbability:     messagePostProcessorShortSentencesProbability,
-		MessagePostProcessorLongMessagesProbability:       messagePostProcessorLongMessagesProbability,
-		MessagePostProcessorSingleWordPrompt:              messagePostProcessorSingleWordPrompt,
-		MessagePostProcessorShortSentencesPrompt:          messagePostProcessorShortSentencesPrompt,
-		MessagePostProcessorLongMessagesPrompt:            messagePostProcessorLongMessagesPrompt,
-		MessagePostProcessorIntelligentPrompt:             messagePostProcessorIntelligentPrompt,
-		MessagePostProcessorSummaryPrompt:                 messagePostProcessorSummaryPrompt,
-		MessagePostProcessorMinLength:                     messagePostProcessorMinLength,
-		MessagePostProcessorMaxLength:                     messagePostProcessorMaxLength,
-		MessagePostProcessorLongMessageThreshold:          messagePostProcessorLongMessageThreshold,
-		MessagePostProcessorForceLongProcessingThreshold:  messagePostProcessorForceLongProcessingThreshold,
-		MessagePostProcessorTimeoutSeconds:                messagePostProcessorTimeoutSeconds,
-		MessagePostProcessorTemperature:                   messagePostProcessorTemperature,
-		MessagePostProcessorCacheEnabled:                  messagePostProcessorCacheEnabled,
-		MessagePostProcessorCacheTTLMinutes:               messagePostProcessorCacheTTLMinutes,
-		MessagePostProcessorExcludeTypes:                  messagePostProcessorExcludeTypes,
-		MessagePostProcessorWeeklySummaryExclude:          messagePostProcessorWeeklySummaryExclude,
-		MessagePostProcessorDebugLogging:                  messagePostProcessorDebugLogging,
-		MessagePostProcessorLogOriginalMessages:           messagePostProcessorLogOriginalMessages,
-		MessagePostProcessorReplacementCacheEnabled:       messagePostProcessorReplacementCacheEnabled,
-		MessagePostProcessorReplacementCacheTTLMinutes:    messagePostProcessorReplacementCacheTTLMinutes,
 		// --- Настройки еженедельного саммари ---
 		WeeklySummaryEnabled:  weeklySummaryEnabled,
 		WeeklySummaryDay:      weeklySummaryDay,
@@ -775,11 +693,6 @@ func Load() (*Config, error) {
 		WeeklySummaryMaxParts: weeklySummaryMaxParts,
 		SummaryMaxParts:       summaryMaxParts,
 		WeeklySummaryPrompt:   weeklySummaryPrompt,
-
-		// Настройки поиска саммари
-		WeeklySummarySearchMethod: weeklySummarySearchMethod,
-		SummaryFlagsEnabled:       summaryFlagsEnabled,
-		SummaryKeywordsEnabled:    summaryKeywordsEnabled,
 		// --- Конец настроек еженедельного саммари ---
 
 		// === НОВАЯ ОПЦИЯ СТРУКТУРИРОВАННОГО ФОРМАТИРОВАНИЯ ===
@@ -814,6 +727,8 @@ func Load() (*Config, error) {
 		EmotionalAnalysisIntervalHours:    emotionalAnalysisIntervalHours,
 		EmotionalAnalysisLookbackMessages: emotionalAnalysisLookbackMessages,
 		EmotionalMemoryRetentionDays:      emotionalMemoryRetentionDays,
+		EmotionalMinMessagesForAnalysis:   emotionalMinMessagesForAnalysis,
+		EmotionalAnalysisDebounceHours:    emotionalAnalysisDebounceHours,
 
 		EmotionalAnalysisPrompt:            emotionalAnalysisPrompt,
 		EmotionalAnalysisPromptProvider:    emotionalAnalysisPromptProvider,
@@ -892,7 +807,6 @@ func loadPromptsFromFiles(cfg *Config) {
 	// Карта: имя файла → указатель на строковое поле в Config
 	promptFields := map[string]*string{
 		"default":                                &cfg.DefaultPrompt,
-		"direct":                                 &cfg.DirectPrompt,
 		"daily_take":                             &cfg.DailyTakePrompt,
 		"summary":                                &cfg.SummaryPrompt,
 		"weekly_summary":                         &cfg.WeeklySummaryPrompt,
@@ -902,6 +816,7 @@ func loadPromptsFromFiles(cfg *Config) {
 		"srach_confirm":                          &cfg.SRACH_CONFIRM_PROMPT,
 		"rate_limit":                             &cfg.RateLimitPrompt,
 		"welcome":                                &cfg.WelcomePrompt,
+		"startup_greeting":                       &cfg.StartupGreetingPrompt,
 		"voice_format":                           &cfg.VoiceFormatPrompt,
 		"classify_direct_message":                &cfg.ClassifyDirectMessagePrompt,
 		"serious_direct":                         &cfg.SeriousDirectPrompt,
@@ -929,11 +844,6 @@ func loadPromptsFromFiles(cfg *Config) {
 		"reaction_analysis":                      &cfg.ReactionAnalysisPrompt,
 		"web_search_trigger":                     &cfg.WebSearchTriggerPrompt,
 		"anti_repetition_rework":                 &cfg.AntiRepetitionReworkPrompt,
-		"message_post_processor_single_word":     &cfg.MessagePostProcessorSingleWordPrompt,
-		"message_post_processor_short_sentences": &cfg.MessagePostProcessorShortSentencesPrompt,
-		"message_post_processor_long_messages":   &cfg.MessagePostProcessorLongMessagesPrompt,
-		"message_post_processor_intelligent":     &cfg.MessagePostProcessorIntelligentPrompt,
-		"message_post_processor_summary":         &cfg.MessagePostProcessorSummaryPrompt,
 		"causal_analysis":                        &cfg.CausalAnalysisPrompt,
 		"causal_influence":                       &cfg.CausalInfluencePrompt,
 		"emotional_analysis":                     &cfg.EmotionalAnalysisPrompt,
@@ -1063,12 +973,6 @@ func loadResponseTypeConfigs(defaultProvider LLMProvider, geminiModel, deepSeekM
 	configs["free_will_mood"] = ResponseTypeConfig{Provider: ProviderGemini, ModelName: geminiModel, Temperature: 0.5, Enabled: true}
 	configs["free_will_take"] = ResponseTypeConfig{Provider: ProviderDeepSeek, ModelName: deepSeekModel, Temperature: 1.0, Enabled: true}
 	configs["free_will_reaction"] = ResponseTypeConfig{Provider: ProviderGemini, ModelName: geminiModel, Temperature: 0.4, Enabled: true}
-	configs["post_process_single"] = ResponseTypeConfig{Provider: ProviderGemini, ModelName: geminiModel, Temperature: 0.8, Enabled: true}
-	configs["post_process_short"] = ResponseTypeConfig{Provider: ProviderGemini, ModelName: geminiModel, Temperature: 0.8, Enabled: true}
-	configs["post_process_long"] = ResponseTypeConfig{Provider: ProviderGemini, ModelName: geminiModel, Temperature: 0.7, Enabled: true}
-	configs["post_process_intelligent"] = ResponseTypeConfig{Provider: ProviderGemini, ModelName: geminiModel, Temperature: 0.8, Enabled: true}
-	configs["post_process_summary"] = ResponseTypeConfig{Provider: ProviderGemini, ModelName: geminiModel, Temperature: 0.6, Enabled: true}
-
 	// Система убеждений
 	configs["belief_analysis"] = ResponseTypeConfig{Provider: ProviderGemini, ModelName: geminiModel, Temperature: 0.5, Enabled: true}
 

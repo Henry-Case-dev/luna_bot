@@ -20,6 +20,10 @@ type TextGenerator interface {
 
 	// GenerateResponseByType — генерация с маршрутизацией по ResponseType.
 	GenerateResponseByType(responseType ResponseType, systemPrompt string, contextText string, temperature float32) (string, error)
+
+	// GenerateChatResponse — генерация из ChatML message array.
+	// Принимает массив сообщений с корректными ролями (system/user/assistant).
+	GenerateChatResponse(responseType ResponseType, messages []ChatMessage, temperature float32) (string, error)
 }
 
 // AudioTranscriber — транскрибация аудио в текст.

@@ -23,7 +23,6 @@ type ConfigV2 struct {
 	Moderation            ModerationConfig           `yaml:"moderation"`
 	AntiRepetition        AntiRepetitionConfig       `yaml:"anti_repetition"`
 	Disambiguation        DisambiguationConfig       `yaml:"disambiguation"`
-	MessagePostProcessor  MessagePostProcessorConfig `yaml:"message_post_processor"`
 	AutoBio               AutoBioConfig              `yaml:"auto_bio"`
 	Personality           PersonalityConfig          `yaml:"personality"`
 	Reactions             ReactionsConfig            `yaml:"reactions"`
@@ -37,6 +36,7 @@ type ConfigV2 struct {
 	Storage               StorageConfig              `yaml:"storage"`
 	Embedding             EmbeddingConfig            `yaml:"embedding"`
 	Prompts               PromptsConfig              `yaml:"prompts"`
+	Diagnostics           DiagnosticsConfig          `yaml:"diagnostics"`
 }
 
 // ============================================================================
@@ -70,16 +70,25 @@ type ProviderConfig struct {
 	SiteURL          string             `yaml:"site_url"`
 	SiteTitle        string             `yaml:"site_title"`
 	Debug            bool               `yaml:"debug"`
-	Safety           SafetyConfig       `yaml:"safety"`
-	Models           map[string]string  `yaml:"models"`
-	Temperatures     map[string]float64 `yaml:"temperatures"`
-	Extra            map[string]any     `yaml:"extra"`
+	Safety               SafetyConfig       `yaml:"safety"`
+	Models               map[string]string  `yaml:"models"`
+	Temperatures         map[string]float64 `yaml:"temperatures"`
+	Extra                map[string]any     `yaml:"extra"`
+	RequestTimeoutSeconds int               `yaml:"request_timeout_seconds"`
+	Retry                 RetryConfig       `yaml:"retry"`
 }
 
 // SafetyConfig — настройки безопасности (Gemini-specific).
 type SafetyConfig struct {
 	BypassFilters bool `yaml:"bypass_filters"`
 	Obfuscate     bool `yaml:"obfuscate"`
+}
+
+// RetryConfig — настройки повторных попыток для провайдера.
+type RetryConfig struct {
+	MaxRetries        int     `yaml:"max_retries"`
+	RetryDelayMs      int     `yaml:"retry_delay_ms"`
+	BackoffMultiplier float64 `yaml:"backoff_multiplier"`
 }
 
 // RoutingProfile — профиль маршрутизации для ResponseType.
@@ -286,60 +295,6 @@ type DisambiguationConfig struct {
 }
 
 // ============================================================================
-// Message Post-Processor Config
-// ============================================================================
-
-// MessagePostProcessorConfig — настройки постобработки сообщений.
-type MessagePostProcessorConfig struct {
-	Enabled              bool                          `yaml:"enabled"`
-	RandomizationEnabled bool                          `yaml:"randomization_enabled"`
-	Probabilities        PostProcessorProbabilitiesCfg `yaml:"probabilities"`
-	Length               PostProcessorLengthCfg        `yaml:"length"`
-	Performance          PostProcessorPerfCfg          `yaml:"performance"`
-	Cache                PostProcessorCacheCfg         `yaml:"cache"`
-	ExcludeTypes         []string                      `yaml:"exclude_types"`
-	WeeklySummaryExclude bool                          `yaml:"weekly_summary_exclude"`
-	Debug                PostProcessorDebugCfg         `yaml:"debug"`
-}
-
-// PostProcessorProbabilitiesCfg — вероятности типов постобработки.
-type PostProcessorProbabilitiesCfg struct {
-	SingleWord     float64 `yaml:"single_word"`
-	ShortSentences float64 `yaml:"short_sentences"`
-	LongMessages   float64 `yaml:"long_messages"`
-}
-
-// PostProcessorLengthCfg — настройки длины.
-type PostProcessorLengthCfg struct {
-	Min                          int `yaml:"min"`
-	Max                          int `yaml:"max"`
-	LongMessageThreshold         int `yaml:"long_message_threshold"`
-	ForceLongProcessingThreshold int `yaml:"force_long_processing_threshold"`
-}
-
-// PostProcessorPerfCfg — настройки производительности.
-type PostProcessorPerfCfg struct {
-	TimeoutSeconds int     `yaml:"timeout_seconds"`
-	Temperature    float64 `yaml:"temperature"`
-}
-
-// PostProcessorCacheCfg — настройки кэша.
-type PostProcessorCacheCfg struct {
-	Enabled          bool `yaml:"enabled"`
-	TTLMinutes       int  `yaml:"ttl_minutes"`
-	ReplacementCache struct {
-		Enabled    bool `yaml:"enabled"`
-		TTLMinutes int  `yaml:"ttl_minutes"`
-	} `yaml:"replacement_cache"`
-}
-
-// PostProcessorDebugCfg — настройки отладки.
-type PostProcessorDebugCfg struct {
-	Logging             bool `yaml:"logging"`
-	LogOriginalMessages bool `yaml:"log_original_messages"`
-}
-
-// ============================================================================
 // Auto Bio Config
 // ============================================================================
 
@@ -422,6 +377,8 @@ type EmotionalLearningConfig struct {
 	AnalysisIntervalHours    int  `yaml:"analysis_interval_hours"`
 	AnalysisLookbackMessages int  `yaml:"analysis_lookback_messages"`
 	MemoryRetentionDays      int  `yaml:"memory_retention_days"`
+	MinMessagesForAnalysis   int  `yaml:"min_messages_for_analysis"`
+	AnalysisDebounceHours    int  `yaml:"analysis_debounce_hours"`
 }
 
 // BeliefLearningConfig — настройки системы убеждений.
@@ -554,8 +511,12 @@ type CleanupConfig struct {
 // PromptsConfig — настройки промптов.
 type PromptsConfig struct {
 	Source string            `yaml:"source"` // "files" | "inline" | "both"
-	Files  map[string]string `yaml:"files"`  // response_type → путь к .txt
-	Inline map[string]string `yaml:"inline"` // response_type → текст промпта
+	Inline map[string]string `yaml:"inline,omitempty"`
+}
+
+// DiagnosticsConfig — диагностические флаги для отладки.
+type DiagnosticsConfig struct {
+	DisableUserProfiles bool `yaml:"disable_user_profiles"` // отключить загрузку профилей пользователей
 }
 
 // ============================================================================

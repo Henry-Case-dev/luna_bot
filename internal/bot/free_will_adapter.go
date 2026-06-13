@@ -21,3 +21,8 @@ func (a *FreeWillLLMAdapter) GetClient() llm.LLMClient {
 func (a *FreeWillLLMAdapter) GenerateResponseByType(responseType llm.ResponseType, systemPrompt, contextText string, temperature float32) (string, error) {
 	return a.client.GenerateResponseByType(responseType, systemPrompt, contextText, temperature)
 }
+
+// GenerateChatResponse delegates ChatML generation to the wrapped LLMClient.
+func (a *FreeWillLLMAdapter) GenerateChatResponse(responseType llm.ResponseType, messages []llm.ChatMessage, temperature float32) (string, error) {
+	return a.client.GenerateChatResponse(responseType, messages, temperature)
+}

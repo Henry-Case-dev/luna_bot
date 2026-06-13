@@ -48,13 +48,6 @@ const (
 	ResponseTypeFreeWillTakeResponse           ResponseType = "free_will_take_response"            // Free Will: ответ на тейк
 	ResponseTypeFreeWillReaction               ResponseType = "free_will_reaction"                 // Free Will: выбор реакций
 
-	// Message Post-Processor типы
-	ResponseTypePostProcessSingleWord  ResponseType = "post_process_single"      // Постобработка: одно слово
-	ResponseTypePostProcessShort       ResponseType = "post_process_short"       // Постобработка: короткие предложения
-	ResponseTypePostProcessLong        ResponseType = "post_process_long"        // Постобработка: длинные сообщения
-	ResponseTypePostProcessIntelligent ResponseType = "post_process_intelligent" // Постобработка: интеллектуальный режим
-	ResponseTypePostProcessSummary     ResponseType = "post_process_summary"     // Постобработка: саммари
-
 	// New constants from the code block
 	ResponseTypePhotoAnalysis        ResponseType = "photo_analysis"         // Анализ фотографий
 	ResponseTypeWebSearchTrigger     ResponseType = "web_search_trigger"     // Триггер веб-поиска

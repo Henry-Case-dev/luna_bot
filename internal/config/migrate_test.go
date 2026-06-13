@@ -652,101 +652,26 @@ func TestMigrateConfig_Prompts(t *testing.T) {
 		DefaultPrompt: "test default prompt",
 	}
 	cfg := MigrateConfig(old)
-	if cfg.Prompts.Inline["default"] != "test default prompt" {
-		t.Errorf("expected Inline['default']='test default prompt', got '%s'", cfg.Prompts.Inline["default"])
+	if cfg.Prompts.Source != "inline" {
+		t.Errorf("expected Source='inline', got '%s'", cfg.Prompts.Source)
 	}
 }
 
 func TestMigrateConfig_Prompts_FallbackDefaults(t *testing.T) {
 	old := &Config{}
 	cfg := MigrateConfig(old)
-	if cfg.Prompts.Inline["default"] != "Ты - участник чата." {
-		t.Errorf("expected default prompt fallback, got '%s'", cfg.Prompts.Inline["default"])
-	}
-	if cfg.Prompts.Inline["welcome"] != "Привет, чат! Я ваш новый спутник в беседе. Погнали!" {
-		t.Errorf("expected welcome prompt fallback, got '%s'", cfg.Prompts.Inline["welcome"])
-	}
-	if cfg.Prompts.Inline["direct"] != "Отвечай прямо и по делу." {
-		t.Errorf("expected direct prompt fallback, got '%s'", cfg.Prompts.Inline["direct"])
+	if cfg.Prompts.Source != "inline" {
+		t.Errorf("expected Source='inline', got '%s'", cfg.Prompts.Source)
 	}
 }
 
 func TestMigrateConfig_Prompts_AllMappings(t *testing.T) {
 	old := &Config{
-		DefaultPrompt:                           "dp",
-		DirectPrompt:                            "dirp",
-		DailyTakePrompt:                         "dtp",
-		SummaryPrompt:                           "sum",
-		WeeklySummaryPrompt:                     "wsum",
-		VoiceMessagesPrompt:                     "vmp",
-		WelcomePrompt:                           "wp",
-		VoiceFormatPrompt:                       "vfp",
-		DonatePrompt:                            "donp",
-		RateLimitPrompt:                         "rlp",
-		WebSearchTriggerPrompt:                  "wstp",
-		ClassifyDirectMessagePrompt:             "cdmp",
-		SeriousDirectPrompt:                     "sdp",
-		PhotoAnalysisPrompt:                     "pap",
-		AutoBioInitialAnalysisPrompt:            "abia",
-		AutoBioUpdatePrompt:                     "abup",
-		PersonalityAnalysisPrompt:               "pap2",
-		PersonalityNameAnalysisPrompt:           "pnap",
-		PersonalityTopicAnalysisPrompt:          "ptap",
-		PersonalitySelfUpdatePrompt:             "psup",
-		ClownReactionPrompt:                     "crp",
-		ReactionAnalysisPrompt:                  "rap",
-		AntiRepetitionReworkPrompt:              "arrp",
-		ImageGenPrePrompt:                       "igpp",
-		CausalAnalysisPrompt:                    "cap",
-		CausalInfluencePrompt:                   "cip",
-		EmotionalAnalysisPrompt:                 "eap",
-		EmotionalAdaptationPrompt:               "eadp",
-		EmotionalFeedbackPrompt:                 "efp",
-		BeliefAnalysisPrompt:                    "bap",
-		InternalMonologuePrompt:                 "imp",
-		SelfReflectionPrompt:                    "srp",
-		RelationshipAnalysisPrompt:              "rlp2",
+		DefaultPrompt: "dp",
 	}
 	cfg := MigrateConfig(old)
-	tests := map[string]string{
-		"default":                            "dp",
-		"direct":                             "dirp",
-		"daily_take":                         "dtp",
-		"summary":                            "sum",
-		"weekly_summary":                     "wsum",
-		"voice_message":                      "vmp",
-		"welcome":                            "wp",
-		"voice_format":                       "vfp",
-		"donate":                             "donp",
-		"rate_limit":                         "rlp",
-		"web_search_trigger":                 "wstp",
-		"classify_direct_message":            "cdmp",
-		"serious_direct":                     "sdp",
-		"photo_analysis":                     "pap",
-		"auto_bio_initial_analysis":          "abia",
-		"auto_bio_update":                    "abup",
-		"personality_analysis":               "pap2",
-		"personality_name_analysis":          "pnap",
-		"personality_topic_analysis":         "ptap",
-		"personality_self_update":            "psup",
-		"clown_reaction":                     "crp",
-		"reaction_analysis":                  "rap",
-		"anti_repetition_rework":             "arrp",
-		"image_gen_pre_prompt":               "igpp",
-		"causal_analysis":                    "cap",
-		"causal_influence":                   "cip",
-		"emotional_analysis":                 "eap",
-		"emotional_adaptation":               "eadp",
-		"emotional_feedback":                 "efp",
-		"belief_analysis":                    "bap",
-		"internal_monologue":                 "imp",
-		"self_reflection":                    "srp",
-		"relationship_analysis":              "rlp2",
-	}
-	for key, expected := range tests {
-		if cfg.Prompts.Inline[key] != expected {
-			t.Errorf("expected Inline[%s]='%s', got '%s'", key, expected, cfg.Prompts.Inline[key])
-		}
+	if cfg.Prompts.Source != "inline" {
+		t.Errorf("expected Source='inline', got '%s'", cfg.Prompts.Source)
 	}
 }
 
@@ -774,75 +699,6 @@ func TestMigrateConfig_NilConfig_Empty(t *testing.T) {
 	}
 }
 
-func TestMigrateConfig_MessagePostProcessor(t *testing.T) {
-	old := &Config{
-		MessagePostProcessorEnabled:                  true,
-		MessagePostProcessorRandomizationEnabled:     true,
-		MessagePostProcessorSingleWordProbability:    0.20,
-		MessagePostProcessorShortSentencesProbability: 0.35,
-		MessagePostProcessorLongMessagesProbability:  0.25,
-		MessagePostProcessorMinLength:                10,
-		MessagePostProcessorMaxLength:                2000,
-		MessagePostProcessorLongMessageThreshold:     100,
-		MessagePostProcessorForceLongProcessingThreshold: 200,
-		MessagePostProcessorTimeoutSeconds:           15,
-		MessagePostProcessorTemperature:              0.9,
-		MessagePostProcessorCacheEnabled:             true,
-		MessagePostProcessorCacheTTLMinutes:          30,
-		MessagePostProcessorReplacementCacheEnabled:  true,
-		MessagePostProcessorReplacementCacheTTLMinutes: 10,
-		MessagePostProcessorExcludeTypes:             []string{"system", "error"},
-		MessagePostProcessorWeeklySummaryExclude:     true,
-		MessagePostProcessorDebugLogging:             true,
-		MessagePostProcessorLogOriginalMessages:      true,
-	}
-	cfg := MigrateConfig(old)
-	if cfg.MessagePostProcessor.Enabled != true {
-		t.Error("expected MessagePostProcessor.Enabled=true")
-	}
-	if cfg.MessagePostProcessor.RandomizationEnabled != true {
-		t.Error("expected RandomizationEnabled=true")
-	}
-	if cfg.MessagePostProcessor.Probabilities.SingleWord != 0.20 {
-		t.Errorf("expected SingleWord=0.20, got %f", cfg.MessagePostProcessor.Probabilities.SingleWord)
-	}
-	if cfg.MessagePostProcessor.Probabilities.ShortSentences != 0.35 {
-		t.Errorf("expected ShortSentences=0.35, got %f", cfg.MessagePostProcessor.Probabilities.ShortSentences)
-	}
-	if cfg.MessagePostProcessor.Length.Min != 10 {
-		t.Errorf("expected Length.Min=10, got %d", cfg.MessagePostProcessor.Length.Min)
-	}
-	if cfg.MessagePostProcessor.Length.ForceLongProcessingThreshold != 200 {
-		t.Errorf("expected ForceLongProcessingThreshold=200, got %d", cfg.MessagePostProcessor.Length.ForceLongProcessingThreshold)
-	}
-	if cfg.MessagePostProcessor.Performance.TimeoutSeconds != 15 {
-		t.Errorf("expected TimeoutSeconds=15, got %d", cfg.MessagePostProcessor.Performance.TimeoutSeconds)
-	}
-	if cfg.MessagePostProcessor.Performance.Temperature != 0.9 {
-		t.Errorf("expected Temperature=0.9, got %f", cfg.MessagePostProcessor.Performance.Temperature)
-	}
-	if cfg.MessagePostProcessor.Cache.Enabled != true {
-		t.Error("expected Cache.Enabled=true")
-	}
-	if cfg.MessagePostProcessor.Cache.TTLMinutes != 30 {
-		t.Errorf("expected Cache.TTLMinutes=30, got %d", cfg.MessagePostProcessor.Cache.TTLMinutes)
-	}
-	if cfg.MessagePostProcessor.Cache.ReplacementCache.Enabled != true {
-		t.Error("expected ReplacementCache.Enabled=true")
-	}
-	if cfg.MessagePostProcessor.WeeklySummaryExclude != true {
-		t.Error("expected WeeklySummaryExclude=true")
-	}
-	if cfg.MessagePostProcessor.Debug.Logging != true {
-		t.Error("expected Debug.Logging=true")
-	}
-	if cfg.MessagePostProcessor.Debug.LogOriginalMessages != true {
-		t.Error("expected Debug.LogOriginalMessages=true")
-	}
-	if len(cfg.MessagePostProcessor.ExcludeTypes) != 2 {
-		t.Errorf("expected 2 exclude types, got %d", len(cfg.MessagePostProcessor.ExcludeTypes))
-	}
-}
 
 func TestMigrateConfig_FreeWillImageGen(t *testing.T) {
 	old := &Config{

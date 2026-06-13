@@ -3,9 +3,13 @@ package bot
 import (
 	"fmt"
 	"log"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/Henry-Case-dev/luna_bot/internal/bot/prompts"
+	"github.com/Henry-Case-dev/luna_bot/internal/llm"
 	"github.com/Henry-Case-dev/luna_bot/internal/storage"
 )
 
@@ -30,16 +34,26 @@ func (b *Bot) buildPersonalityContext(chatID int64, includeStatic bool, includeD
 
 	if includeStatic {
 		// СТАТИЧЕСКАЯ ЛИЧНОСТЬ (ВЫСШИЙ ПРИОРИТЕТ)
-		if memory.StaticPersonality != "" {
+		// Приоритет: БД → файл personality_context.txt
+		staticPersonality := memory.StaticPersonality
+		if staticPersonality == "" {
+			staticPersonality = loadPromptFallback("personality_context")
+		}
+		if staticPersonality != "" {
 			sb.WriteString("=== ОСНОВНАЯ ЛИЧНОСТЬ ===\n")
-			sb.WriteString(memory.StaticPersonality)
+			sb.WriteString(staticPersonality)
 			sb.WriteString("\n\n")
 		}
 
 		// ИНСТРУКЦИИ ПОВЕДЕНИЯ (ВЫСШИЙ ПРИОРИТЕТ)
-		if memory.StyleInstructions != "" {
+		// Приоритет: БД → файл style_instructions.txt
+		styleInstructions := memory.StyleInstructions
+		if styleInstructions == "" {
+			styleInstructions = loadPromptFallback("style_instructions")
+		}
+		if styleInstructions != "" {
 			sb.WriteString("=== СТИЛЬ ОБЩЕНИЯ ===\n")
-			sb.WriteString(memory.StyleInstructions)
+			sb.WriteString(styleInstructions)
 			sb.WriteString("\n\n")
 		}
 	}
@@ -226,6 +240,25 @@ func (b *Bot) buildPersonalityContext(chatID int64, includeStatic bool, includeD
 
 // enrichPromptWithPersonality встраивает личность в промпт
 func (b *Bot) enrichPromptWithPersonality(basePrompt string, chatID int64, promptType string) string {
+	// Fast path: если в промпте нет плейсхолдеров — не строим личность
+	if !strings.Contains(basePrompt, "{") {
+		return basePrompt
+	}
+
+	// УНИФИЦИРОВАННАЯ ПРОВЕРКА ПЛЕЙСХОЛДЕРОВ (P0 FIX)
+	// Поддерживаем ОБА формата: {PERSONALITY_CONTEXT} (старый строковый)
+	// и {{.PersonalityContext}} (Go-template из free_will.txt и main.txt)
+	hasPersonalityPlaceholder := strings.Contains(basePrompt, "{PERSONALITY_CONTEXT}") ||
+		strings.Contains(basePrompt, "{{.PersonalityContext}}") ||
+		strings.Contains(basePrompt, "{{ .PersonalityContext }}")
+	hasStylePlaceholder := strings.Contains(basePrompt, "{STYLE_INSTRUCTIONS}") ||
+		strings.Contains(basePrompt, "{{.StyleInstructions}}") ||
+		strings.Contains(basePrompt, "{{ .StyleInstructions }}")
+
+	if !hasPersonalityPlaceholder && !hasStylePlaceholder {
+		return basePrompt
+	}
+
 	log.Printf("[PersonalityContext] enrichPromptWithPersonality: Запрос для чата %d, тип: %s", chatID, promptType)
 	log.Printf("[PersonalityContext] enrichPromptWithPersonality: ИСХОДНЫЙ ПРОМПТ (длина %d):\n%s", len(basePrompt), basePrompt)
 
@@ -264,39 +297,54 @@ func (b *Bot) enrichPromptWithPersonality(basePrompt string, chatID int64, promp
 	}
 
 	styleInstructions := memory.StyleInstructions
+	// Fallback: если БД пуста, загружаем из файла
+	if styleInstructions == "" {
+		styleInstructions = loadPromptFallback("style_instructions")
+	}
 	log.Printf("[PersonalityContext] enrichPromptWithPersonality: STYLE_INSTRUCTIONS (длина %d):\n%s", len(styleInstructions), styleInstructions)
 
-	// Проверяем наличие плейсхолдеров
-	hasPersonalityPlaceholder := strings.Contains(basePrompt, "{PERSONALITY_CONTEXT}")
-	hasStylePlaceholder := strings.Contains(basePrompt, "{STYLE_INSTRUCTIONS}")
-
-	if !hasPersonalityPlaceholder && !hasStylePlaceholder {
-		log.Printf("[PersonalityContext] enrichPromptWithPersonality: НИ ОДИН ПЛЕЙСХОЛДЕР НЕ НАЙДЕН в промпте!")
-		return basePrompt
-	}
-
 	enrichedPrompt := basePrompt
+	replacements := 0
 
-	// Встраиваем личность
+	// Встраиваем личность — заменяем ВСЕ известные форматы
 	if hasPersonalityPlaceholder {
 		enrichedPrompt = strings.ReplaceAll(enrichedPrompt, "{PERSONALITY_CONTEXT}", personalityContext)
-		log.Printf("[PersonalityContext] enrichPromptWithPersonality: Заменен {PERSONALITY_CONTEXT}")
+		enrichedPrompt = strings.ReplaceAll(enrichedPrompt, "{{.PersonalityContext}}", personalityContext)
+		enrichedPrompt = strings.ReplaceAll(enrichedPrompt, "{{ .PersonalityContext }}", personalityContext)
+		replacements++
+		log.Printf("[PersonalityContext] enrichPromptWithPersonality: Заменены плейсхолдеры PersonalityContext (форматов: %d)", 3)
 	}
 
-	// Встраиваем style instructions
+	// Встраиваем style instructions — заменяем ВСЕ известные форматы
 	if hasStylePlaceholder {
 		enrichedPrompt = strings.ReplaceAll(enrichedPrompt, "{STYLE_INSTRUCTIONS}", styleInstructions)
-		log.Printf("[PersonalityContext] enrichPromptWithPersonality: Заменен {STYLE_INSTRUCTIONS}")
+		enrichedPrompt = strings.ReplaceAll(enrichedPrompt, "{{.StyleInstructions}}", styleInstructions)
+		enrichedPrompt = strings.ReplaceAll(enrichedPrompt, "{{ .StyleInstructions }}", styleInstructions)
+		replacements++
+		log.Printf("[PersonalityContext] enrichPromptWithPersonality: Заменены плейсхолдеры StyleInstructions (форматов: %d)", 3)
 	}
+
+	log.Printf("[PersonalityContext] enrichPromptWithPersonality: Всего замен: %d групп(ы) плейсхолдеров", replacements)
 
 	log.Printf("[PersonalityContext] enrichPromptWithPersonality: ИТОГОВЫЙ ПРОМПТ (длина %d):\n%s", len(enrichedPrompt), enrichedPrompt)
 
 	return enrichedPrompt
 }
 
-// getDefaultPersonalityFallback возвращает базовую личность для fallback
+// getDefaultPersonalityFallback возвращает базовую личность для fallback.
+// Приоритет: файл personality_context.txt
 func (b *Bot) getDefaultPersonalityFallback() string {
-	return ""
+	return loadPromptFallback("personality_context")
+}
+
+// loadPromptFallback загружает промпт из файла. Используется как fallback
+// когда значение в БД пустое или память личности недоступна.
+func loadPromptFallback(name string) string {
+	content, err := prompts.LoadPrompt(name)
+	if err != nil || content == "" {
+		return ""
+	}
+	return content
 }
 
 // initializeStaticPersonality инициализирует статическую личность, если она отсутствует
@@ -344,4 +392,140 @@ func limitStringSlice(slice []string, maxSize int) []string {
 		return slice
 	}
 	return slice[len(slice)-maxSize:]
+}
+
+// BuildChatSystemMessage builds a complete system-prompt ChatMessage in XML format.
+func (b *Bot) BuildChatSystemMessage(chatID int64, targetUserID int64, stateData *prompts.TemplateData) llm.ChatMessage {
+	var sb strings.Builder
+	sb.WriteString("<SYSTEM_PROMPT>\n")
+
+	personality := stateData.PersonalityContext
+	if personality == "" {
+		personality = b.buildPersonalityContext(chatID, true, false)
+	}
+	if personality != "" {
+		sb.WriteString("<CHAR_INFO>\n")
+		sb.WriteString(xmlEscape(personality))
+		sb.WriteString("\n</CHAR_INFO>\n")
+	}
+
+	style := stateData.StyleInstructions
+	if style == "" {
+		style = b.getStyleInstructions()
+	}
+	if style != "" {
+		sb.WriteString("<STYLE_INSTRUCTIONS>\n")
+		sb.WriteString(xmlEscape(style))
+		sb.WriteString("\n</STYLE_INSTRUCTIONS>\n")
+	}
+
+	sb.WriteString(b.buildSystemStateXML(stateData))
+
+	if targetUserID > 0 && !b.config.DisableUserProfiles {
+		addressee := b.buildAddresseeXML(targetUserID, chatID)
+		if addressee != "" {
+			sb.WriteString(addressee)
+		}
+	}
+
+	dialogueExamples := loadDialogueExamples()
+	if dialogueExamples != "" {
+		sb.WriteString("<DIALOGUE_EXAMPLES>\n")
+		sb.WriteString(xmlEscape(dialogueExamples))
+		sb.WriteString("\n</DIALOGUE_EXAMPLES>\n")
+	}
+
+	sb.WriteString("</SYSTEM_PROMPT>")
+
+	return llm.ChatMessage{
+		Role:    "system",
+		Content: strings.TrimSpace(sb.String()),
+	}
+}
+
+func (b *Bot) buildSystemStateXML(stateData *prompts.TemplateData) string {
+	var sb strings.Builder
+	sb.WriteString("<SYSTEM_STATE>\n")
+
+	if stateData.Presence != nil {
+		presenceHint := stateData.Presence.Hint
+		if presenceHint == "" {
+			presenceHint = fmt.Sprintf("%d:00", stateData.Presence.LocalHour)
+		}
+		sb.WriteString(fmt.Sprintf("  <PRESENCE>%s</PRESENCE>\n", xmlEscape(presenceHint)))
+	}
+
+	if stateData.Mood != nil {
+		sb.WriteString(fmt.Sprintf("  <MOOD ENERGY=\"%.2f\" IRRITABILITY=\"%.2f\" AFFECTION=\"%.2f\">%s</MOOD>\n",
+			stateData.Mood.Energy,
+			stateData.Mood.Irritability,
+			stateData.Mood.Affection,
+			xmlEscape(stateData.Mood.CurrentMood)))
+	}
+
+	timeZone := b.config.TimeZone
+	if timeZone == "" {
+		timeZone = "UTC"
+	}
+	loc, err := time.LoadLocation(timeZone)
+	if err != nil {
+		loc = time.UTC
+	}
+	now := time.Now().In(loc)
+	sb.WriteString(fmt.Sprintf("  <TIME ZONE=\"%s\">%s</TIME>\n",
+		xmlEscape(timeZone),
+		now.Format("15:04 02.01")))
+
+	if stateData.Conflict != nil && stateData.Conflict.Active && stateData.Conflict.Fragment != "" {
+		sb.WriteString(fmt.Sprintf("  <CONFLICT>%s</CONFLICT>\n", xmlEscape(stateData.Conflict.Fragment)))
+	}
+
+	sb.WriteString("</SYSTEM_STATE>\n")
+	return sb.String()
+}
+
+func (b *Bot) buildAddresseeXML(targetUserID int64, chatID int64) string {
+	profile, err := b.storage.GetUserProfile(chatID, targetUserID)
+	if err != nil || profile == nil {
+		return ""
+	}
+
+	var sb strings.Builder
+	sb.WriteString("<ADDRESSEE>\n")
+	sb.WriteString(fmt.Sprintf("  <USER ID=\"%d\">\n", targetUserID))
+
+	if profile.Alias != "" {
+		sb.WriteString(fmt.Sprintf("    <ALIAS>%s</ALIAS>\n", xmlEscape(profile.Alias)))
+	}
+	if profile.Bio != "" {
+		bio := profile.Bio
+		runes := []rune(bio)
+		if len(runes) > 500 {
+			bio = string(runes[:500]) + "…"
+		}
+		sb.WriteString(fmt.Sprintf("    <BIO>%s (НЕ цитируй bio дословно!)</BIO>\n", xmlEscape(bio)))
+	}
+
+	sb.WriteString("  </USER>\n")
+	sb.WriteString("</ADDRESSEE>\n")
+	return sb.String()
+}
+
+func loadDialogueExamples() string {
+	promptDir := prompts.GetPromptDir()
+	filePath := filepath.Join(promptDir, "dialogue_examples.txt")
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return ""
+	}
+
+	lines := strings.Split(string(data), "\n")
+	var filtered []string
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed != "" && !strings.HasPrefix(trimmed, "#") {
+			filtered = append(filtered, line)
+		}
+	}
+	return strings.TrimSpace(strings.Join(filtered, "\n"))
 }

@@ -93,6 +93,14 @@ func (b *Bot) handleMessage(update tgbotapi.Update) {
 	chatID = message.Chat.ID // Убедимся, что chatID актуален
 	// username := message.From.UserName // Обновим username на всякий случай
 
+	// Sanitize user input: strip LLM special tokens before any processing
+	if !isBotMessage && message.Text != "" {
+		message.Text = SanitizeUserInput(message.Text)
+	}
+	if !isBotMessage && message.Caption != "" {
+		message.Caption = SanitizeUserInput(message.Caption)
+	}
+
 	// === Settings Read Start ===
 	b.settingsMutex.RLock() // Use RLock for reading settings
 	settings, exists := b.chatSettings[chatID]
@@ -251,49 +259,17 @@ func (b *Bot) handleMessage(update tgbotapi.Update) {
 	hasDirectMention := isReplyToBot || mentionsBot || mentionsByName
 
 	if hasDirectMention {
-		// Проверяем включен ли DIRECT_PROMPT
-		if b.config.DirectPromptEnabled {
-			// Используем классический DIRECT_PROMPT
-			if b.config.Debug {
-				log.Printf("[DEBUG][MH] Chat %d: IsReplyToBot: %t, MentionsBot: %t. Checking direct reply limit.", chatID, isReplyToBot, mentionsBot)
-			}
-			// Проверяем лимит прямых ответов
-			limitEnabled, _, _ := b.getDirectReplyLimitSettings(chatID) // Используем _ для неиспользуемых count и duration
-			if limitEnabled {
-				if !b.checkDirectReplyLimit(chatID, message.From.ID) { // ИНВЕРТИРОВАНО: ! checkDirectReplyLimit возвращает false, если лимит превышен
-					if b.config.Debug {
-						log.Printf("[DEBUG][MH] Chat %d: Direct reply limit EXCEEDED.", chatID)
-					}
-					b.sendDirectLimitExceededReply(chatID, message.MessageID)
-					// Выход после обработки прямого ответа (лимит превышен)
-					log.Printf("[DEBUG][MH EXIT POINT] Chat %d: Reached EXIT point after direct reply/mention (limit exceeded).", chatID)
-					return
-				} else {
-					// Лимит не превышен, продолжаем с прямым ответом
-					if b.config.Debug {
-						log.Printf("[DEBUG][MH] Chat %d: Direct reply limit NOT exceeded. Proceeding with direct response.", chatID)
-					}
-				}
-			}
-
-			// Если лимит выключен ИЛИ не превышен - отправляем прямой ответ
-			b.sendDirectResponse(chatID, message)
-			// Выход после обработки прямого ответа
-			log.Printf("[DEBUG][MH EXIT POINT] Chat %d: Reached EXIT point after direct reply/mention (sent direct response).", chatID)
-			return
-		} else {
-			// DIRECT_PROMPT отключен, но есть прямое обращение
-			// Передаем в Free Will для принятия решения
-			if b.config.Debug {
-				log.Printf("[DEBUG][MH] Chat %d: DIRECT_PROMPT отключен, передаем обращение по имени/reply в Free Will Direct Response", chatID)
-			}
-			if b.freeWillService != nil {
-				b.freeWillService.OnDirectMention(chatID, message)
-			}
-			// ✅ ДЕЛАЕМ return здесь - Free Will принял решение, не должно быть дополнительных ответов
-			log.Printf("[DEBUG][MH EXIT POINT] Chat %d: Reached EXIT point after Free Will Direct Response", chatID)
-			return
+		// Передаем прямое обращение в Free Will для принятия решения
+		if b.config.Debug {
+			log.Printf("[DEBUG][MH] Chat %d: Прямое обращение (reply=%t, mention=%t, byName=%t), передаем в Free Will Direct Response",
+				chatID, isReplyToBot, mentionsBot, mentionsByName)
 		}
+		if b.freeWillService != nil {
+			b.freeWillService.OnDirectMention(chatID, message)
+		}
+		// ✅ ДЕЛАЕМ return здесь - Free Will принял решение, не должно быть дополнительных ответов
+		log.Printf("[DEBUG][MH EXIT POINT] Chat %d: Reached EXIT point after Free Will Direct Response", chatID)
+		return
 	}
 
 	// === ВЫЗОВ FREE WILL для сообщений БЕЗ прямого обращения ===
@@ -496,6 +472,7 @@ func (b *Bot) generateDailyTake(chatID int64) {
 	}
 
 	// Очищаем ответ от возможных метаданных перед отправкой
+	topic = SanitizeThinkTags(topic)
 	topic = cleanupLLMResponse(topic)
 
 	// Отправляем тему дня

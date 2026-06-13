@@ -42,6 +42,10 @@ func (m *mockTextGen) GenerateResponseByType(llm.ResponseType, string, string, f
 	m.callCount++
 	return m.response, m.err
 }
+func (m *mockTextGen) GenerateChatResponse(llm.ResponseType, []llm.ChatMessage, float32) (string, error) {
+	m.callCount++
+	return m.response, m.err
+}
 
 // ============================================================================
 // Mock Embedder

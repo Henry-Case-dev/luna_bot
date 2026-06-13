@@ -16,6 +16,7 @@ type mockTextGenerator struct {
 	generateResponseFromTextFn  func(string, string, float32) (string, error)
 	generateArbitraryResponseFn func(string, string, float32) (string, error)
 	generateResponseByTypeFn    func(ResponseType, string, string, float32) (string, error)
+	generateChatResponseFn      func(ResponseType, []ChatMessage, float32) (string, error)
 }
 
 func (m *mockTextGenerator) GenerateResponse(sp string, h []*tgbotapi.Message, lm *tgbotapi.Message, t float32) (string, error) {
@@ -41,6 +42,12 @@ func (m *mockTextGenerator) GenerateResponseByType(rt ResponseType, sp, ct strin
 		return m.generateResponseByTypeFn(rt, sp, ct, t)
 	}
 	return "mock typed response", nil
+}
+func (m *mockTextGenerator) GenerateChatResponse(rt ResponseType, messages []ChatMessage, t float32) (string, error) {
+	if m.generateChatResponseFn != nil {
+		return m.generateChatResponseFn(rt, messages, t)
+	}
+	return "mock chat response", nil
 }
 
 type mockAudioTranscriber struct {

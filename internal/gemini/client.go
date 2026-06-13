@@ -1233,6 +1233,10 @@ func (c *Client) GenerateResponseByType(responseType llm.ResponseType, systemPro
 	return c.GenerateArbitraryResponse(systemPrompt, contextText, temperature)
 }
 
+func (c *Client) GenerateChatResponse(responseType llm.ResponseType, messages []llm.ChatMessage, temperature float32) (string, error) {
+	return c.GenerateArbitraryResponse(llm.ExtractSystemContent(messages), llm.FlattenChatMessages(messages), temperature)
+}
+
 // configureSafetySettings настраивает фильтры безопасности для модели
 // Отключает все фильтры для свободного общения, если включено в конфигурации
 func (c *Client) configureSafetySettings(model *genai.GenerativeModel) {

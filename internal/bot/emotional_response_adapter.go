@@ -2,7 +2,6 @@ package bot
 
 import (
 	"log"
-	"strings"
 )
 
 // getEmotionallyInfluencedResponseType возвращает responseType с учётом текущих эмоций
@@ -98,74 +97,5 @@ func (b *Bot) mapResponseTypeToTendency(responseType string) string {
 		return "spontaneity"
 	default:
 		return ""
-	}
-}
-
-// adaptMessagePostProcessorToEmotion адаптирует постпроцессор к эмоциональному состоянию
-func (b *Bot) adaptMessagePostProcessorToEmotion(chatID int64, originalText string) string {
-	if !b.config.EmotionalLearningEnabled || b.messagePostProcessor == nil {
-		return originalText
-	}
-
-	emotionalState, err := b.storage.GetEmotionalState(chatID)
-	if err != nil || emotionalState == nil {
-		return originalText
-	}
-
-	// Определяем эмоциональные модификации
-	var modifications []string
-
-	if emotionalState.Anger > 0.6 {
-		modifications = append(modifications, "add_edge")
-	}
-
-	if emotionalState.Joy > 0.7 {
-		modifications = append(modifications, "add_warmth")
-	}
-
-	if emotionalState.Sadness > 0.6 {
-		modifications = append(modifications, "add_melancholy")
-	}
-
-	if emotionalState.Anxiety > 0.7 {
-		modifications = append(modifications, "add_uncertainty")
-	}
-
-	// Применяем эмоциональные модификации (через расширенный постпроцессор)
-	modifiedText := originalText
-	for _, mod := range modifications {
-		modifiedText = b.applyEmotionalModification(modifiedText, mod)
-	}
-
-	return modifiedText
-}
-
-func (b *Bot) applyEmotionalModification(text, modification string) string {
-	switch modification {
-	case "add_edge":
-		// Добавляем резкость
-		if !strings.HasSuffix(text, ".") {
-			text += "."
-		}
-		return text
-
-	case "add_warmth":
-		// Добавляем теплоту (но без эмодзи, согласно стилю)
-		return text
-
-	case "add_melancholy":
-		// Добавляем меланхолию
-		return text
-
-	case "add_uncertainty":
-		// Добавляем неуверенность
-		if strings.HasSuffix(text, ".") {
-			text = strings.TrimSuffix(text, ".")
-			text += "..."
-		}
-		return text
-
-	default:
-		return text
 	}
 }

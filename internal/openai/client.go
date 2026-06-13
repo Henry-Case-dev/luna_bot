@@ -162,6 +162,10 @@ func (c *Client) GenerateResponseByType(responseType llm.ResponseType, systemPro
 	return c.GenerateArbitraryResponse(systemPrompt, contextText, temperature)
 }
 
+func (c *Client) GenerateChatResponse(responseType llm.ResponseType, messages []llm.ChatMessage, temperature float32) (string, error) {
+	return c.GenerateArbitraryResponse(llm.ExtractSystemContent(messages), llm.FlattenChatMessages(messages), temperature)
+}
+
 func buildMessages(systemPrompt, contextText string) []openaiMessage {
 	messages := make([]openaiMessage, 0, 2)
 	if systemPrompt != "" {

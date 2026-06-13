@@ -125,8 +125,12 @@ func (b *Bot) analyzeEmotionsForChat(chatID int64) error {
 		return fmt.Errorf("ошибка получения сообщений: %w", err)
 	}
 
-	if len(messages) < 3 {
-		log.Printf("[EmotionalAnalyzer] Недостаточно сообщений в чате %d для анализа эмоций", chatID)
+	minMsgs := b.config.EmotionalMinMessagesForAnalysis
+	if minMsgs <= 0 {
+		minMsgs = 20
+	}
+	if len(messages) < minMsgs {
+		log.Printf("[EmotionalAnalyzer] Недостаточно сообщений в чате %d для анализа эмоций (нужно %d, есть %d)", chatID, minMsgs, len(messages))
 		return nil
 	}
 
@@ -140,8 +144,8 @@ func (b *Bot) analyzeEmotionsForChat(chatID int64) error {
 		}
 	}
 
-	if len(recentMessages) < 3 {
-		log.Printf("[EmotionalAnalyzer] Недостаточно недавних сообщений в чате %d для анализа эмоций", chatID)
+	if len(recentMessages) < minMsgs {
+		log.Printf("[EmotionalAnalyzer] Недостаточно недавних сообщений в чате %d для анализа эмоций (нужно %d, есть %d)", chatID, minMsgs, len(recentMessages))
 		return nil
 	}
 
@@ -170,6 +174,20 @@ func (b *Bot) analyzeEmotionsForChat(chatID int64) error {
 
 // analyzeEmotionsForUser анализирует эмоции конкретного пользователя
 func (b *Bot) analyzeEmotionsForUser(chatID, userID int64, userMessages, allMessages []*tgbotapi.Message) error {
+	// Дебаунс: проверяем, когда пользователя последний раз анализировали
+	debounceHours := b.config.EmotionalAnalysisDebounceHours
+	if debounceHours <= 0 {
+		debounceHours = 6
+	}
+	b.lastAnalysisMu.RLock()
+	lastTime, exists := b.lastAnalysisTime[userID]
+	b.lastAnalysisMu.RUnlock()
+	if exists && time.Since(lastTime) < time.Duration(debounceHours)*time.Hour {
+		log.Printf("[EmotionalAnalyzer] Пропуск анализа для пользователя %d (дебаунс %dч, последний анализ %v назад)",
+			userID, debounceHours, time.Since(lastTime).Round(time.Minute))
+		return nil
+	}
+
 	// Получаем профиль пользователя
 	profile, err := b.storage.GetUserProfile(chatID, userID)
 	if err != nil {
@@ -178,8 +196,9 @@ func (b *Bot) analyzeEmotionsForUser(chatID, userID int64, userMessages, allMess
 
 	// Используем новый унифицированный форматтер
 	formatter := NewUnifiedMessageFormatter(b.storage, b.config.TimeZone)
-	allMessagesFormatted := formatter.FormatMessages(chatID, allMessages)
-	userMessagesFormatted := formatter.FormatMessages(chatID, userMessages)
+	formatter.SetDisableUserProfiles(b.config.DisableUserProfiles)
+	allMessagesFormatted := formatter.FormatMessagesXML(chatID, allMessages)
+	userMessagesFormatted := formatter.FormatMessagesXML(chatID, userMessages)
 
 	// Создаём специальный формат для эмоционального анализа
 	userName := "Пользователь"
@@ -199,8 +218,9 @@ func (b *Bot) analyzeEmotionsForUser(chatID, userID int64, userMessages, allMess
 
 	log.Printf("[EmotionalAnalyzer] Chat %d: Использован унифицированный форматтер для анализа пользователя %d", chatID, userID)
 
-	// Запрашиваем анализ у LLM
-	response, err := b.llm.GenerateResponseByType(llm.ResponseTypeEmotionalAnalysis, b.config.EmotionalAnalysisPrompt, analysisText, float32(b.config.EmotionalAnalysisPromptTemperature))
+	// Запрашиваем анализ у LLM (обогащение личности через унифицированный метод)
+	emotionalAnalysisPrompt := b.enrichPromptWithPersonality(b.config.EmotionalAnalysisPrompt, chatID, "emotional_analysis")
+	response, err := b.llm.GenerateResponseByType(llm.ResponseTypeEmotionalAnalysis, emotionalAnalysisPrompt, analysisText, float32(b.config.EmotionalAnalysisPromptTemperature))
 	if err != nil {
 		return fmt.Errorf("ошибка генерации анализа эмоций: %w", err)
 	}
@@ -227,6 +247,11 @@ func (b *Bot) analyzeEmotionsForUser(chatID, userID int64, userMessages, allMess
 	log.Printf("[EmotionalAnalyzer] Анализ эмоций завершен для пользователя %d в чате %d: %s (%.2f)",
 		userID, chatID, analysisResult.PrimaryEmotion, analysisResult.EmotionIntensity)
 
+	// Обновляем время последнего анализа
+	b.lastAnalysisMu.Lock()
+	b.lastAnalysisTime[userID] = time.Now()
+	b.lastAnalysisMu.Unlock()
+
 	return nil
 }
 
@@ -243,7 +268,25 @@ func (b *Bot) parseEmotionalAnalysisResponse(llmResponse string) (*EmotionalAnal
 
 	// Валидируем результат
 	if result.PrimaryEmotion == "" {
-		return nil, fmt.Errorf("отсутствует primary_emotion")
+		// Fallback: ищем эмоцию с наивысшим баллом
+		var maxEmotion string
+		var maxScore float64
+		for emotion, score := range result.EmotionScores {
+			if score > maxScore {
+				maxScore = score
+				maxEmotion = emotion
+			}
+		}
+
+		if maxEmotion != "" {
+			result.PrimaryEmotion = maxEmotion
+			log.Printf("[EmotionalAnalyzer WARN] primary_emotion не указан в ответе LLM, выбран '%s' по наивысшему баллу (%.2f)", maxEmotion, maxScore)
+		} else {
+			// Вообще нет эмоций — neutral
+			result.PrimaryEmotion = "neutral"
+			result.EmotionIntensity = 0.0
+			log.Printf("[EmotionalAnalyzer WARN] primary_emotion и emotion_scores отсутствуют, установлено 'neutral'")
+		}
 	}
 
 	if result.EmotionIntensity < 0 || result.EmotionIntensity > 1 {
@@ -294,6 +337,12 @@ func (b *Bot) updateBotEmotionalState(chatID int64, analysis *EmotionalAnalysisR
 	currentState, err := b.storage.GetEmotionalState(chatID)
 	if err != nil {
 		return fmt.Errorf("ошибка получения эмоционального состояния: %w", err)
+	}
+	if currentState == nil {
+		// Состояние не инициализировано — создаём новое
+		currentState = &storage.EmotionalState{
+			ChatID: chatID,
+		}
 	}
 
 	// Обновляем эмоции на основе анализа
@@ -382,20 +431,14 @@ func (b *Bot) GetEmotionalAdaptation(chatID, userID int64) (*EmotionalAdaptation
 		return nil, nil
 	}
 
-	// Получаем контекст личности для анализа
-	personalityContext, err := b.getPersonalityContext(chatID, "emotional_adaptation")
-	if err != nil {
-		return nil, fmt.Errorf("ошибка получения контекста личности: %w", err)
-	}
-
 	// Формируем входные данные для анализа
 	analysisText := fmt.Sprintf(
 		"Пользователь %d в чате %d:\n\n%s",
 		userID, chatID, emotionalContext,
 	)
 
-	// Заменяем плейсхолдеры в промпте
-	prompt := strings.ReplaceAll(b.config.EmotionalAdaptationPrompt, "{PERSONALITY_CONTEXT}", personalityContext)
+	// Заменяем плейсхолдеры в промпте (обогащение личности через унифицированный метод)
+	prompt := b.enrichPromptWithPersonality(b.config.EmotionalAdaptationPrompt, chatID, "emotional_adaptation")
 	prompt = strings.ReplaceAll(prompt, "{EMOTIONAL_CONTEXT}", emotionalContext)
 
 	// Запрашиваем анализ у LLM
@@ -520,14 +563,8 @@ func (b *Bot) AnalyzeEmotionalFeedback(chatID, userID int64, interactionHistory,
 		return nil, nil
 	}
 
-	// Получаем контекст личности для анализа
-	personalityContext, err := b.getPersonalityContext(chatID, "emotional_feedback")
-	if err != nil {
-		return nil, fmt.Errorf("ошибка получения контекста личности: %w", err)
-	}
-
-	// Заменяем плейсхолдеры в промпте
-	prompt := strings.ReplaceAll(b.config.EmotionalFeedbackPrompt, "{PERSONALITY_CONTEXT}", personalityContext)
+	// Заменяем плейсхолдеры в промпте (обогащение личности через унифицированный метод)
+	prompt := b.enrichPromptWithPersonality(b.config.EmotionalFeedbackPrompt, chatID, "emotional_feedback")
 	prompt = strings.ReplaceAll(prompt, "{INTERACTION_HISTORY}", interactionHistory)
 	prompt = strings.ReplaceAll(prompt, "{USER_REACTION}", userReaction)
 

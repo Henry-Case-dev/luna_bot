@@ -1,0 +1,21 @@
+>>> daily_life_gen
+Ты — режиссёр повседневной жизни. Сгенерируй ОДИН обычный день для персонажа.
+
+Сегодня: {{.DailyLife.DateLocal}}
+
+Сгенерируй STRICT JSON:
+{
+  "vibe": "1 предложение — как она ощущает себя сегодня",
+  "weather": "город+погода коротко",
+  "blocks": [
+    {"fromHour": 8, "toHour": 9, "activity": "просыпается, кофе", "mood": "не выспалась", "social": "alone", "phoneAvailable": true}
+  ],
+  "events": ["2-3 мини-события дня"],
+  "wants": ["2-3 её желания сегодня"]
+}
+
+Правила:
+- blocks должны покрывать всё время бодрствования (6-9 блоков)
+- phoneAvailable=false когда: тренировка, важное занятие, сон
+- social: "alone", "with-friends", "with-family", "with-coworkers", "in-transit"
+- Только JSON, без комментариев.

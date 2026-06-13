@@ -503,6 +503,11 @@ func (fs *FileStorage) UpdateSrachAnalysisEnabled(chatID int64, enabled bool) er
 	return fmt.Errorf("UpdateSrachAnalysisEnabled не поддерживается FileStorage")
 }
 
+func (fs *FileStorage) UpdatePhotoAnalysisEnabled(chatID int64, enabled bool) error {
+	log.Printf("[FileStorage WARN] UpdatePhotoAnalysisEnabled не поддерживается FileStorage для chatID %d", chatID)
+	return fmt.Errorf("UpdatePhotoAnalysisEnabled не поддерживается FileStorage")
+}
+
 // --- Embedding and Vector Search Methods (FileStorage - Stubs) ---
 
 func (fs *FileStorage) SearchRelevantMessages(chatID int64, queryText string, k int) ([]*tgbotapi.Message, error) {

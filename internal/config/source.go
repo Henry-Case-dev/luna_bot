@@ -97,11 +97,22 @@ func (s *YAMLConfigSource) Watch(ctx context.Context) (<-chan ConfigChange, erro
 
 var envVarPattern = regexp.MustCompile(`\$\{([^}]+)\}`)
 
-// resolveEnvVars заменяет ${VAR} на значение из os.Getenv("VAR").
+// resolveEnvVars заменяет ${VAR} и ${VAR:-default} на значения из окружения.
 func resolveEnvVars(yamlContent string) string {
 	return envVarPattern.ReplaceAllStringFunc(yamlContent, func(match string) string {
-		varName := match[2 : len(match)-1]
-		return os.Getenv(varName)
+		varExpr := match[2 : len(match)-1] // e.g. "POSTGRESQL_HOST:-localhost"
+
+		// Поддержка синтаксиса ${VAR:-default}
+		if idx := strings.Index(varExpr, ":-"); idx >= 0 {
+			varName := varExpr[:idx]
+			defaultVal := varExpr[idx+2:]
+			if val := os.Getenv(varName); val != "" {
+				return val
+			}
+			return defaultVal
+		}
+
+		return os.Getenv(varExpr)
 	})
 }
 

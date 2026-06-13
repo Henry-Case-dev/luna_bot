@@ -73,6 +73,18 @@ func (b *Bot) handleCallback(callback *tgbotapi.CallbackQuery) {
 		b.answerCallback(callback.ID, "⚙️ Открываю настройки...")
 		return
 
+	case "status": // Обработка кнопки статуса из меню настроек
+		log.Printf("[Callback] Пользователь %d запросил статус систем в чате %d", callback.From.ID, chatID)
+		b.answerCallback(callback.ID, "📊 Загружаю статус систем...")
+		b.sendStatusMessage(chatID)
+		return
+
+	case "state": // Обработка кнопки состояния из основного меню
+		log.Printf("[Callback] Пользователь %d запросил состояние в чате %d", callback.From.ID, chatID)
+		b.answerCallback(callback.ID, "📊 Загружаю состояние...")
+		b.sendStateInfo(chatID)
+		return
+
 	case "stop": // Обработка кнопки паузы из основного меню
 		b.settingsMutex.Lock()
 		if settings, exists := b.chatSettings[chatID]; exists {
@@ -266,7 +278,14 @@ func (b *Bot) handleCallback(callback *tgbotapi.CallbackQuery) {
 }
 
 // getCurrentModelName возвращает имя текущей используемой модели LLM
+// Для local/новых провайдеров — получает модель из V2-роутера (единственный источник правды)
 func (b *Bot) getCurrentModelName() string {
+	// Пытаемся получить модель из V2-роутера (актуально для local и новых провайдеров)
+	if model := b.getModelFromRouterV2(); model != "" {
+		return model
+	}
+
+	// Fallback: старые провайдеры из legacy-конфига
 	switch b.config.LLMProvider {
 	case config.ProviderGemini:
 		return b.config.GeminiModelName
@@ -275,8 +294,26 @@ func (b *Bot) getCurrentModelName() string {
 	case config.ProviderOpenRouter:
 		return b.config.OpenRouterModelName
 	default:
-		return "Неизвестная модель"
+		return "неизвестная модель"
 	}
+}
+
+// getProviderDisplayName возвращает человекочитаемое имя текущего LLM-провайдера
+func (b *Bot) getProviderDisplayName() string {
+	// V2-роутер — приоритетный источник
+	if router, ok := b.llm.(*LLMRouterV2); ok {
+		return router.GetDefaultProviderName()
+	}
+	return string(b.config.LLMProvider)
+}
+
+// getModelFromRouterV2 пытается получить имя модели из V2-роутера
+func (b *Bot) getModelFromRouterV2() string {
+	router, ok := b.llm.(*LLMRouterV2)
+	if !ok {
+		return ""
+	}
+	return router.GetDefaultTextModel()
 }
 
 // handleSummaryCommand - логика для команды /summary (вынесена из command_handler)

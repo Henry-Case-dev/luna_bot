@@ -406,6 +406,52 @@ func (urv *UserReferenceValidator) createConflictResolution(chatID int64, displa
 	return strings.Join(resolutionParts, " vs ")
 }
 
+// BuildDisambiguationWarning создает предупреждение о конфликтах алиасов для
+// конкретного набора пользователей в ChatML-контексте.
+func (urv *UserReferenceValidator) BuildDisambiguationWarning(chatID int64, userIDs []int64) string {
+	urv.ensureCacheValid(chatID)
+
+	conflicts := urv.CheckAliasConflicts(chatID)
+	if len(conflicts) == 0 {
+		return ""
+	}
+
+	userSet := make(map[int64]bool, len(userIDs))
+	for _, uid := range userIDs {
+		userSet[uid] = true
+	}
+
+	var relevantConflicts []string
+	for _, conflict := range conflicts {
+		if conflict.Severity < ConflictMajor {
+			continue
+		}
+		hasUserInContext := false
+		for _, uid := range conflict.UserIDs {
+			if userSet[uid] {
+				hasUserInContext = true
+				break
+			}
+		}
+		if !hasUserInContext {
+			continue
+		}
+		resolution := urv.GetConflictResolution(chatID, conflict.Alias, conflict.UserIDs)
+		relevantConflicts = append(relevantConflicts, fmt.Sprintf(
+			"Пользователи %s имеют одинаковое имя/алиас '%s'. Будь внимателен при обращении.",
+			resolution, conflict.Alias,
+		))
+	}
+
+	if len(relevantConflicts) > 0 {
+		return "=== ВНИМАНИЕ: КОНФЛИКТЫ ИМЁН ===\n" +
+			strings.Join(relevantConflicts, "\n") +
+			"\n=== КОНЕЦ ПРЕДУПРЕЖДЕНИЯ ===\n"
+	}
+
+	return ""
+}
+
 // LogConflictWarning логирует предупреждение о конфликте для LLM
 func (urv *UserReferenceValidator) LogConflictWarning(chatID int64) string {
 	conflicts := urv.CheckAliasConflicts(chatID)

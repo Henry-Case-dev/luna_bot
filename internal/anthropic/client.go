@@ -169,6 +169,10 @@ func (c *Client) GenerateResponseByType(responseType llm.ResponseType, systemPro
 	return c.GenerateArbitraryResponse(systemPrompt, contextText, temperature)
 }
 
+func (c *Client) GenerateChatResponse(responseType llm.ResponseType, messages []llm.ChatMessage, temperature float32) (string, error) {
+	return c.GenerateArbitraryResponse(llm.ExtractSystemContent(messages), llm.FlattenChatMessages(messages), temperature)
+}
+
 func (c *Client) sendRequest(systemPrompt string, messages []anthropicMessage, temperature float32) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Second)
 	defer cancel()

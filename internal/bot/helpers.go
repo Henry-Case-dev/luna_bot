@@ -124,7 +124,8 @@ func (b *Bot) findUserProfileByUsername(chatID int64, username string) (*storage
 func formatHistoryWithProfiles(chatID int64, messages []*tgbotapi.Message, store storage.ChatHistoryStorage, cfg *config.Config, timeZone string) string {
 	// Используем новый унифицированный форматтер
 	formatter := NewUnifiedMessageFormatter(store, timeZone)
-	return formatter.FormatMessages(chatID, messages)
+	formatter.SetDisableUserProfiles(cfg.DisableUserProfiles)
+	return formatter.FormatMessagesXML(chatID, messages)
 }
 
 // formatDirectReplyContext создает контекст для прямого ответа бота
@@ -238,7 +239,8 @@ func formatDirectReplyContext(chatID int64,
 
 	// Используем новый унифицированный форматтер
 	formatter := NewUnifiedMessageFormatter(store, timeZone)
-	return formatter.FormatMessages(chatID, allMessages)
+	formatter.SetDisableUserProfiles(cfg.DisableUserProfiles)
+	return formatter.FormatMessagesXML(chatID, allMessages)
 }
 
 // --- Глобальный указатель на Bot для доступа к памяти личности ---
@@ -259,7 +261,8 @@ func generateContrastiveContext(mainContext string, messages []*tgbotapi.Message
 func formatMessagesWithProfilesInternal(chatID int64, messages []*tgbotapi.Message, store storage.ChatHistoryStorage, cfg *config.Config, timeZone string, seenMessageIDs map[int]bool) string {
 	// Используем новый унифицированный форматтер
 	formatter := NewUnifiedMessageFormatter(store, timeZone)
-	return formatter.FormatMessages(chatID, messages)
+	formatter.SetDisableUserProfiles(cfg.DisableUserProfiles)
+	return formatter.FormatMessagesXML(chatID, messages)
 }
 
 // cleanupLLMResponse очищает ответ LLM от различных системных элементов и метаданных
@@ -267,6 +270,12 @@ func cleanupLLMResponse(originalResponse string) string {
 	log.Printf("🧹 [CLEANUP] Начинаем очистку ответа LLM. Исходная длина: %d символов", len(originalResponse))
 
 	cleanedResponse := originalResponse
+
+	// 0. Strip <think>...</think> blocks FIRST (before generic HTML regex removes only tags)
+	cleanedResponse = SanitizeThinkTags(cleanedResponse)
+
+	// 0.1. Strip XML context hallucinations (model may leak system prompt / message history)
+	cleanedResponse = sanitizeXMLHallucinations(cleanedResponse)
 
 	// 1. Убираем теги XML/HTML
 	htmlTagRegex := regexp.MustCompile(`<[^>]*>`)
@@ -422,6 +431,34 @@ func cleanupLLMResponse(originalResponse string) string {
 		log.Printf("🧹 [CLEANUP] Удалены метки медиа. Было %d символов, стало %d", len(beforeMediaLabelsCleanup), len(cleanedResponse))
 	}
 
+	// 19. P0 FIX: Детекция JSON-галлюцинаций — модель выдала свои мысли вместо ответа
+	// Ищем JSON-структуры с ключами вроде shouldreply, reason, reply_type и т.д.
+	jsonLeakPatterns := []string{
+		`"shouldreply"`, `"should_reply"`, `"shouldReply"`,
+		`"replytype"`, `"reply_type"`, `"replyType"`,
+		`"targetmessage_id"`, `"target_message_id"`, `"targetMessageId"`,
+		`"reason"`, `"confidence"`, `"mood"`,
+	}
+	hasJSONLeak := false
+	lower := strings.ToLower(cleanedResponse)
+	for _, pattern := range jsonLeakPatterns {
+		if strings.Contains(lower, pattern) {
+			hasJSONLeak = true
+			break
+		}
+	}
+	if hasJSONLeak && (strings.Count(cleanedResponse, "{") >= 1 || strings.Count(cleanedResponse, "}") >= 1) {
+		log.Printf("🧹 [CLEANUP] P0: Обнаружена JSON-галлюцинация! Исходный текст: %.200s...", cleanedResponse)
+		// Пытаемся извлечь только осмысленный текст, удаляя JSON-блоки
+		jsonBlockRegex := regexp.MustCompile(`\{[^}]*\}`)
+		cleanedResponse = jsonBlockRegex.ReplaceAllString(cleanedResponse, "")
+		// Удаляем оставшиеся JSON-ключи и значения
+		cleanedResponse = regexp.MustCompile(`"?\w+"?\s*:\s*"[^"]*"`).ReplaceAllString(cleanedResponse, "")
+		cleanedResponse = regexp.MustCompile(`"?\w+"?\s*:\s*\w+`).ReplaceAllString(cleanedResponse, "")
+		cleanedResponse = strings.TrimSpace(cleanedResponse)
+		log.Printf("🧹 [CLEANUP] P0: После удаления JSON-галлюцинации: %.200s...", cleanedResponse)
+	}
+
 	// Итоговая статистика очистки
 	log.Printf("✅ [CLEANUP] Очистка завершена. Исходная длина: %d символов, итоговая: %d символов (удалено: %d)",
 		len(originalResponse), len(cleanedResponse), len(originalResponse)-len(cleanedResponse))
@@ -433,6 +470,39 @@ func cleanupLLMResponse(originalResponse string) string {
 	}
 
 	return cleanedResponse
+}
+
+// sanitizeXMLHallucinations удаляет XML-теги контекста из ответа модели.
+// Модель может галлюцинировать и выдавать системные теги в своём ответе.
+func sanitizeXMLHallucinations(text string) string {
+	before := text
+
+	xmlTags := []string{
+		"SYSTEM_PROMPT", "MESSAGE_HISTORY",
+		"CHAR_INFO", "STYLE_INSTRUCTIONS",
+		"SYSTEM_STATE", "ADDRESSEE", "DIALOGUE_EXAMPLES",
+		"PRESENCE", "MOOD", "TIME",
+		"CONFLICT", "TEXT", "BIO", "REAL_NAME", "USERNAME", "ALIAS",
+	}
+
+	for _, tag := range xmlTags {
+		re := regexp.MustCompile(`(?is)<` + tag + `[^>]*>.*?</` + tag + `>`)
+		text = re.ReplaceAllString(text, "")
+	}
+
+	selfClosingTags := []string{"MSG", "USER", "ASSISTANT"}
+	for _, tag := range selfClosingTags {
+		re := regexp.MustCompile(`(?is)<` + tag + `\s[^>]*/>`)
+		text = re.ReplaceAllString(text, "")
+		re = regexp.MustCompile(`(?is)<` + tag + `\s[^>]*>.*?</` + tag + `>`)
+		text = re.ReplaceAllString(text, "")
+	}
+
+	if before != text {
+		log.Printf("🧹 [CLEANUP] sanitizeXMLHallucinations: Удалены XML-галлюцинации. Было %d символов, стало %d", len(before), len(text))
+	}
+
+	return text
 }
 
 // cleanJSONFromMarkdown очищает ответ LLM от markdown разметки и исправляет псевдо-JSON
@@ -1936,14 +2006,56 @@ func fixReplyChainUserIdentification(chatID int64, replyChain []*tgbotapi.Messag
 	// Валидируем цепочку
 	validatedChain, warnings := validateReplyChain(chatID, replyChain, store)
 
+	// Дополнительная проверка: если есть сообщение бота в цепочке,
+	// targetUserID = автор сообщения ПЕРЕД сообщением бота
+	var botSelfID int64
+	if globalBotInstance != nil && globalBotInstance.api != nil {
+		botSelfID = globalBotInstance.api.Self.ID
+	}
+	if botSelfID != 0 {
+		for i, msg := range validatedChain {
+			if msg != nil && msg.From != nil && msg.From.ID == botSelfID {
+				// Бот ответил на чьё-то сообщение — targetUserID = автор того сообщения
+				if msg.ReplyToMessage != nil && msg.ReplyToMessage.From != nil {
+					targetAuthor := msg.ReplyToMessage.From.ID
+					warnings = append(warnings, fmt.Sprintf(
+						"Бот отвечал в цепочке на сообщение от пользователя %d. TargetUserID должен быть %d.",
+						targetAuthor, targetAuthor,
+					))
+				}
+				// Если перед сообщением бота есть другое сообщение (бот отвечает на своё же)
+				if i > 0 {
+					prevMsg := validatedChain[i-1]
+					if prevMsg.From != nil && prevMsg.From.ID != botSelfID {
+						log.Printf("[REPLY_CHAIN_FIX] Chat %d: Бот ответил на своё сообщение в цепочке — targetUserID = автор предыдущего сообщения %d",
+							chatID, prevMsg.From.ID)
+					}
+				}
+				break
+			}
+		}
+	}
+
 	// Дополнительно проверяем каждое сообщение в цепочке
-	for _, msg := range validatedChain {
+	allSameAuthor := true
+	var firstAuthorID int64
+	for i, msg := range validatedChain {
 		if msg != nil && msg.From != nil {
 			userID := msg.From.ID
 			if _, found := profilesCache[userID]; !found {
 				warnings = append(warnings, fmt.Sprintf("Пользователь %d не найден в профилях", userID))
 			}
+			if i == 0 {
+				firstAuthorID = userID
+			} else if userID != firstAuthorID {
+				allSameAuthor = false
+			}
 		}
+	}
+
+	if len(validatedChain) > 1 && allSameAuthor {
+		warnings = append(warnings,
+			"ВНИМАНИЕ: Вся цепочка ответов — от одного пользователя. Возможна путаница адресата. Проверь контекст!")
 	}
 
 	log.Printf("[REPLY_CHAIN_FIX] Chat %d: Исправлена идентификация пользователей в цепочке. Предупреждений: %d",

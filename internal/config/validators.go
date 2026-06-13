@@ -170,9 +170,6 @@ func (v *TypeValidator) validatePositiveInts(cfg *ConfigV2) []error {
 		{"moderation.interval_minutes", cfg.Moderation.IntervalMinutes},
 		{"anti_repetition.max_responses_per_chat", cfg.AntiRepetition.MaxResponsesPerChat},
 		{"anti_repetition.cleanup_interval_hours", cfg.AntiRepetition.CleanupIntervalHours},
-		{"message_post_processor.length.min", cfg.MessagePostProcessor.Length.Min},
-		{"message_post_processor.length.max", cfg.MessagePostProcessor.Length.Max},
-		{"message_post_processor.performance.timeout_seconds", cfg.MessagePostProcessor.Performance.TimeoutSeconds},
 		{"auto_bio.max_messages_for_analysis", cfg.AutoBio.MaxMessagesForAnalysis},
 		{"auto_bio.lookback_days", cfg.AutoBio.LookbackDays},
 		{"personality.max_name_mentions", cfg.Personality.MaxNameMentions},
@@ -194,6 +191,7 @@ func (v *TypeValidator) validatePositiveInts(cfg *ConfigV2) []error {
 		{"association_cloud.decay_days", cfg.AssociationCloud.DecayDays},
 		{"storage.long_term_memory.fetch_k", cfg.Storage.LongTermMemory.FetchK},
 		{"storage.long_term_memory.backfill.batch_size", cfg.Storage.LongTermMemory.Backfill.BatchSize},
+		{"free_will.image_generation.max_per_interval", cfg.FreeWill.ImageGeneration.MaxPerInterval},
 	}
 
 	for _, c := range checks {
@@ -211,7 +209,6 @@ func (v *TypeValidator) validatePositiveInts(cfg *ConfigV2) []error {
 		value int
 	}{
 		{"free_will.direct_response.max_per_hour", cfg.FreeWill.DirectResponse.MaxPerHour},
-		{"free_will.image_generation.max_per_interval", cfg.FreeWill.ImageGeneration.MaxPerInterval},
 		{"free_will.image_generation.interval_hours", cfg.FreeWill.ImageGeneration.IntervalHours},
 		{"free_will.reactions.max_per_hour", cfg.FreeWill.Reactions.MaxPerHour},
 		{"reactions.clown.cooldown_seconds", cfg.Reactions.Clown.CooldownSeconds},
@@ -320,10 +317,6 @@ func (v *RangeValidator) validateTemperatures(cfg *ConfigV2) []error {
 		{"free_will.reactions.probability", cfg.FreeWill.Reactions.Probability},
 		{"anti_repetition.similarity_threshold", cfg.AntiRepetition.SimilarityThreshold},
 		{"anti_repetition.rework.temperature", cfg.AntiRepetition.Rework.Temperature},
-		{"message_post_processor.probabilities.single_word", cfg.MessagePostProcessor.Probabilities.SingleWord},
-		{"message_post_processor.probabilities.short_sentences", cfg.MessagePostProcessor.Probabilities.ShortSentences},
-		{"message_post_processor.probabilities.long_messages", cfg.MessagePostProcessor.Probabilities.LongMessages},
-		{"message_post_processor.performance.temperature", cfg.MessagePostProcessor.Performance.Temperature},
 		{"causal_learning.min_confidence", cfg.CausalLearning.MinConfidence},
 		{"social_architecture.intimacy_growth_rate", cfg.SocialArchitecture.IntimacyGrowthRate},
 		{"social_architecture.trust_decay_rate", cfg.SocialArchitecture.TrustDecayRate},
@@ -386,9 +379,6 @@ func (v *RangeValidator) validateProbabilities(cfg *ConfigV2) []error {
 		{"free_will.voice_probability", cfg.FreeWill.VoiceProbability},
 		{"free_will.reactions.probability", cfg.FreeWill.Reactions.Probability},
 		{"anti_repetition.similarity_threshold", cfg.AntiRepetition.SimilarityThreshold},
-		{"message_post_processor.probabilities.single_word", cfg.MessagePostProcessor.Probabilities.SingleWord},
-		{"message_post_processor.probabilities.short_sentences", cfg.MessagePostProcessor.Probabilities.ShortSentences},
-		{"message_post_processor.probabilities.long_messages", cfg.MessagePostProcessor.Probabilities.LongMessages},
 		{"causal_learning.min_confidence", cfg.CausalLearning.MinConfidence},
 		{"social_architecture.intimacy_growth_rate", cfg.SocialArchitecture.IntimacyGrowthRate},
 		{"social_architecture.trust_decay_rate", cfg.SocialArchitecture.TrustDecayRate},

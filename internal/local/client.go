@@ -4,10 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/Henry-Case-dev/luna_bot/internal/llm"
@@ -20,10 +23,20 @@ type chatMessage struct {
 	Content string `json:"content"`
 }
 
+type requestOptions struct {
+	NumCtx int `json:"num_ctx"`
+}
+
 type chatRequest struct {
-	Model       string        `json:"model"`
-	Messages    []chatMessage `json:"messages"`
-	Temperature float64       `json:"temperature"`
+	Model             string         `json:"model"`
+	Messages          []chatMessage  `json:"messages"`
+	Temperature       float64        `json:"temperature"`
+	TopP              float64        `json:"top_p,omitempty"`
+	MinP              float64        `json:"min_p,omitempty"`
+	RepetitionPenalty float64        `json:"repetition_penalty,omitempty"`
+	PresencePenalty   float64        `json:"presence_penalty,omitempty"`
+	FrequencyPenalty  float64        `json:"frequency_penalty,omitempty"`
+	Options           requestOptions `json:"options"`
 }
 
 type chatResponse struct {
@@ -45,7 +58,7 @@ func New(baseURL, modelName, apiKey string, debug bool) (*Client, error) {
 		baseURL = "http://localhost:11434/v1"
 	}
 	return &Client{
-		httpClient: &http.Client{Timeout: 120 * time.Second},
+		httpClient: &http.Client{Timeout: 300 * time.Second},
 		baseURL:    baseURL,
 		modelName:  modelName,
 		apiKey:     apiKey,
@@ -75,7 +88,7 @@ func (c *Client) GenerateResponse(systemPrompt string, history []*tgbotapi.Messa
 		Content: lastMessage.Text,
 	})
 
-	return c.doChatCompletion(messages, temperature)
+	return c.doChatCompletionWithRetry(context.Background(), messages, ResponseSamplingParams(), false)
 }
 
 func (c *Client) GenerateResponseFromTextContext(systemPrompt string, contextText string, temperature float32) (string, error) {
@@ -90,7 +103,7 @@ func (c *Client) GenerateResponseFromTextContext(systemPrompt string, contextTex
 		{Role: "user", Content: contextText},
 	}
 
-	return c.doChatCompletion(messages, temperature)
+	return c.doChatCompletionWithRetry(context.Background(), messages, ResponseSamplingParams(), false)
 }
 
 func (c *Client) GenerateArbitraryResponse(systemPrompt string, contextText string, temperature float32) (string, error) {
@@ -105,14 +118,58 @@ func (c *Client) GenerateArbitraryResponse(systemPrompt string, contextText stri
 		{Role: "user", Content: contextText},
 	}
 
-	return c.doChatCompletion(messages, temperature)
+	return c.doChatCompletionWithRetry(context.Background(), messages, ResponseSamplingParams(), false)
 }
 
 func (c *Client) GenerateResponseByType(responseType llm.ResponseType, systemPrompt string, contextText string, temperature float32) (string, error) {
 	if c.debug {
 		log.Printf("[DEBUG] Local: Генерация ответа типа %s с температурой %f", responseType, temperature)
 	}
-	return c.GenerateArbitraryResponse(systemPrompt, contextText, temperature)
+
+	messages := []chatMessage{
+		{Role: "system", Content: systemPrompt},
+		{Role: "user", Content: contextText},
+	}
+
+	params := c.samplingParamsForType(string(responseType), temperature)
+	return c.doChatCompletionWithRetry(context.Background(), messages, params, isDecisionResponseType(string(responseType)))
+}
+
+// GenerateChatResponse generates a response from a ChatML message array.
+// This is the primary method for the new ChatML context pipeline.
+func (c *Client) GenerateChatResponse(responseType llm.ResponseType, messages []llm.ChatMessage, temperature float32) (string, error) {
+	if c.debug {
+		log.Printf("[DEBUG] Local ChatML: Генерация ответа типа %s с %d сообщениями, температура %.2f", responseType, len(messages), temperature)
+	}
+
+	chatMessages := make([]chatMessage, len(messages))
+	for i, m := range messages {
+		chatMessages[i] = chatMessage{
+			Role:    m.Role,
+			Content: m.Content,
+		}
+	}
+
+	params := c.samplingParamsForType(string(responseType), temperature)
+	return c.doChatCompletionWithRetry(context.Background(), chatMessages, params, isDecisionResponseType(string(responseType)))
+}
+
+// samplingParamsForType returns the appropriate SamplingParams based on response type.
+// Decision types get Stage 1 params (low temp, no TopP, no PresencePenalty).
+// All other types get Stage 2 response generation params.
+func (c *Client) samplingParamsForType(responseType string, temperature float32) SamplingParams {
+	if isDecisionResponseType(responseType) {
+		params := DecisionSamplingParams()
+		if temperature > 0 {
+			params.Temperature = float64(temperature)
+		}
+		return params
+	}
+	params := ResponseSamplingParams()
+	if temperature > 0 {
+		params.Temperature = float64(temperature)
+	}
+	return params
 }
 
 func (c *Client) prepareChatHistory(systemPrompt string, messages []*tgbotapi.Message) []chatMessage {
@@ -144,13 +201,25 @@ func (c *Client) prepareChatHistory(systemPrompt string, messages []*tgbotapi.Me
 	return chatMessages
 }
 
-func (c *Client) doChatCompletion(messages []chatMessage, temperature float32) (string, error) {
+func (c *Client) doChatCompletion(ctx context.Context, messages []chatMessage, params SamplingParams, isDecision bool) (string, error) {
+	timeout := 300 * time.Second
+	if isDecision {
+		timeout = 30 * time.Second
+	}
+	reqCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
 	url := c.baseURL + "/chat/completions"
 
 	reqBody := chatRequest{
-		Model:       c.modelName,
-		Messages:    messages,
-		Temperature: float64(temperature),
+		Model:             c.modelName,
+		Messages:          messages,
+		Temperature:       params.Temperature,
+		TopP:              params.TopP,
+		MinP:              params.MinP,
+		RepetitionPenalty: params.RepetitionPenalty,
+		PresencePenalty:   params.PresencePenalty,
+		Options:           requestOptions{NumCtx: 24576},
 	}
 
 	jsonBody, err := json.Marshal(reqBody)
@@ -158,7 +227,7 @@ func (c *Client) doChatCompletion(messages []chatMessage, temperature float32) (
 		return "", fmt.Errorf("local: failed to marshal request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, url, bytes.NewReader(jsonBody))
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, url, bytes.NewReader(jsonBody))
 	if err != nil {
 		return "", fmt.Errorf("local: failed to create request: %w", err)
 	}
@@ -201,6 +270,39 @@ func (c *Client) doChatCompletion(messages []chatMessage, temperature float32) (
 	}
 
 	return response, nil
+}
+
+func (c *Client) doChatCompletionWithRetry(ctx context.Context, messages []chatMessage, params SamplingParams, isDecision bool) (string, error) {
+	const maxRetries = 1
+	var lastErr error
+
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		resp, err := c.doChatCompletion(ctx, messages, params, isDecision)
+		if err == nil {
+			return resp, nil
+		}
+		lastErr = err
+		if !isTimeoutError(err) {
+			break
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	return "", lastErr
+}
+
+func isTimeoutError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return true
+	}
+	return strings.Contains(err.Error(), "Client.Timeout exceeded") ||
+		strings.Contains(err.Error(), "deadline exceeded")
 }
 
 var (

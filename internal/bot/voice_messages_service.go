@@ -230,7 +230,8 @@ func (vms *VoiceMessageService) generateVoiceText(chatID int64) (string, error) 
 
 	// Используем новый унифицированный форматтер
 	formatter := NewUnifiedMessageFormatter(vms.bot.storage, vms.bot.config.TimeZone)
-	contextText := formatter.FormatMessages(chatID, contextMessages)
+	formatter.SetDisableUserProfiles(vms.bot.config.DisableUserProfiles)
+	contextText := formatter.FormatMessagesXML(chatID, contextMessages)
 
 	log.Printf("[VoiceMessages] Chat %d: Использован унифицированный форматтер для %d сообщений", chatID, len(contextMessages))
 

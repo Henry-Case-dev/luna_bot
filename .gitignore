@@ -107,3 +107,9 @@ plans/
 
 # Сводка состояния проекта (генерируется ИИ)
 STATE_SUMMARY.md
+
+# Сторонний эталонный проект (не коммитить)
+reference_girl_bot/
+
+# Coverage-файлы
+coverage/

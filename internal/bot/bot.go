@@ -3,10 +3,10 @@ package bot
 import (
 	"fmt"
 	"log"
+	"log/slog"
 	"strings"
 	"math/rand"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/Henry-Case-dev/luna_bot/internal/config"
@@ -57,10 +57,14 @@ type Bot struct {
 	reactionStats            *ReactionStatistics     // Статистика обработки реакций
 	voiceMessageService      *VoiceMessageService    // Сервис голосовых сообщений
 	freeWillService          *FreeWillService        // Сервис Free Will для "живого" поведения
+	contextIsolator          *ContextIsolator         // Сервис изоляции контекста для групповых чатов
 	antiRepetitionService    *AntiRepetitionService  // Сервис предотвращения повторений
 	userValidator            *UserReferenceValidator // Система дисамбигуации пользователей
-	messagePostProcessor     *MessagePostProcessor   // Система постобработки сообщений
 	imageGenerationService   *ImageGenerationService // Сервис генерации изображений
+	stateProvider            *StateProvider           // State injection bridge (T4.5)
+	startTime                time.Time                // Время запуска бота (для uptime)
+	lastAnalysisTime         map[int64]time.Time      // дебаунс анализа эмоций per userID
+	lastAnalysisMu           sync.RWMutex
 
 	// Минимальная дедупликация отправок: ключ (chatID|source|originalMessageID) → время последней отправки
 	dedupMu  sync.Mutex
@@ -213,6 +217,8 @@ func New(cfg *config.Config, llmClient llm.LLMClient) (*Bot, error) {
 		// Инициализация структуры дедупликации
 		dedupMap: make(map[string]time.Time),
 		dedupTTL: 5 * time.Second,
+		// Инициализация дебаунса эмоционального анализа
+		lastAnalysisTime: make(map[int64]time.Time),
 	}
 
 	// Инициализация сервиса модерации ПОСЛЕ создания объекта Bot
@@ -258,6 +264,15 @@ func New(cfg *config.Config, llmClient llm.LLMClient) (*Bot, error) {
 			map[bool]string{true: "включен", false: "выключен"}[b.freeWillService.IsEnabled()])
 	}
 
+	// Инициализация сервиса изоляции контекста
+	log.Printf("[Bot] 🔒 Создаем сервис ContextIsolator...")
+	b.contextIsolator = NewContextIsolator(b)
+	if b.contextIsolator == nil {
+		log.Printf("[Bot] ❌ КРИТИЧЕСКАЯ ОШИБКА: contextIsolator = nil после создания!")
+	} else {
+		log.Printf("[Bot] ✅ Сервис ContextIsolator создан")
+	}
+
 	// Инициализация сервиса анти-повторений
 	log.Printf("[Bot] 🔄 Создаем сервис AntiRepetition...")
 	b.antiRepetitionService = NewAntiRepetitionService(b)
@@ -281,19 +296,13 @@ func New(cfg *config.Config, llmClient llm.LLMClient) (*Bot, error) {
 		log.Printf("[Bot] 👥 Система дисамбигуации пользователей отключена по конфигу (DISAMBIGUATION_ENABLED=false)")
 	}
 
-	// Инициализация системы постобработки сообщений
-	log.Printf("[Bot] 🔧 Создаем систему постобработки сообщений...")
-	b.messagePostProcessor = NewMessagePostProcessor(b)
-
 	// Инициализируем сервис генерации изображений
 	b.imageGenerationService = NewImageGenerationService(b, b.config)
 	log.Printf("[Bot] ✅ Сервис генерации изображений инициализирован")
-	if b.messagePostProcessor == nil {
-		log.Printf("[Bot] ❌ КРИТИЧЕСКАЯ ОШИБКА: messagePostProcessor = nil после создания!")
-	} else {
-		log.Printf("[Bot] ✅ Система постобработки сообщений создана. Статус: %s",
-			map[bool]string{true: "включена", false: "выключена"}[b.messagePostProcessor.IsEnabled()])
-	}
+
+	// Инициализируем StateProvider (T4.5 State Injection)
+	b.stateProvider = NewStateProvider(b)
+	log.Printf("[Bot] ✅ StateProvider инициализирован")
 
 	// Загрузка всех настроек чатов при старте
 	b.loadAllChatSettingsFromStorage()
@@ -308,6 +317,7 @@ func New(cfg *config.Config, llmClient llm.LLMClient) (*Bot, error) {
 func (b *Bot) Start() error {
 	log.Println("=== START: Начало функции Start() ===")
 	b.stop = make(chan struct{}) // Пересоздаем канал при старте
+	b.startTime = time.Now()     // Фиксируем время запуска для uptime
 
 	// Отключаем webhook, чтобы избежать конфликтов с polling
 	log.Println("=== START: Отключение webhook ===")
@@ -464,9 +474,9 @@ func (b *Bot) Start() error {
 	globalBotInstance = b
 	log.Println("=== START: Глобальная ссылка на Bot установлена ===")
 
-	// === ОТПРАВКА STARTUP MESSAGE ВО ВСЕ АКТИВНЫЕ ЧАТЫ ===
-	log.Println("=== START: Отправка startup message во все активные чаты ===")
-	go b.sendStartupMessageToAllChats()
+	// === ОТПРАВКА ПРИВЕТСТВЕННОГО СООБЩЕНИЯ ВО ВСЕ АКТИВНЫЕ ЧАТЫ ===
+	log.Println("=== START: Отправка приветственного сообщения во все активные чаты ===")
+	go b.sendStartupGreetingToAllChats()
 
 	log.Println("Бот начал слушать обновления (с поддержкой реакций)...")
 	log.Println("=== START: Запуск основного цикла обработки обновлений ===")
@@ -619,12 +629,6 @@ func (b *Bot) ensureChatInitializedAndWelcome(update tgbotapi.Update) (*ChatSett
 		go b.loadChatHistory(chatID)
 		// Активируем модерацию для нового чата
 		go b.moderation.CheckAdminRightsAndActivate(chatID)
-
-		// Отправляем стартовое сообщение после небольшой задержки, чтобы дать время на инициализацию
-		go func() {
-			time.Sleep(2 * time.Second) // Даем время для завершения инициализации
-			b.sendStartupMessage(chatID)
-		}()
 
 		// Инициализируем personal memory для нового чата
 		go func(cid int64) {
@@ -1054,11 +1058,6 @@ func (b *Bot) DisableDisambiguation() {
 	log.Printf("[Bot] 👥 Система дисамбигуации пользователей отключена (runtime)")
 }
 
-// GetMessagePostProcessor возвращает систему постобработки сообщений
-func (b *Bot) GetMessagePostProcessor() *MessagePostProcessor {
-	return b.messagePostProcessor
-}
-
 // GetPersonalitySummary получает строковое представление личности бота для конкретного чата
 func (b *Bot) GetPersonalitySummary(chatID int64) (string, error) {
 	// Получаем личность из хранилища
@@ -1162,31 +1161,20 @@ func (b *Bot) runMongoDBCleanupTask(mongoStore *storage.PostgresStorage) {
 // scheduleDailyTake планирует ежедневную отправку темы для обсуждения.
 // ... existing code ...
 
-// sendStartupMessageToAllChats отправляет startup message во все активные чаты при запуске бота
-func (b *Bot) sendStartupMessageToAllChats() {
-	// Увеличиваем задержку для гарантии завершения инициализации
+// sendStartupGreetingToAllChats отправляет сгенерированное приветственное сообщение
+// во все активные чаты при запуске бота (и после паузы).
+func (b *Bot) sendStartupGreetingToAllChats() {
 	time.Sleep(10 * time.Second)
 
-	log.Printf("[StartupMessage] Начинаем отправку startup message во все активные чаты...")
+	log.Printf("[StartupGreeting] Начинаем отправку приветственного сообщения...")
 
-	// Дополнительная проверка инициализации критических компонентов
-	if b.api == nil {
-		log.Printf("[StartupMessage] ❌ КРИТИЧЕСКАЯ ОШИБКА: b.api = nil")
-		return
-	}
-	if b.storage == nil {
-		log.Printf("[StartupMessage] ❌ КРИТИЧЕСКАЯ ОШИБКА: b.storage = nil")
+	if b.api == nil || b.storage == nil {
+		log.Printf("[StartupGreeting] ❌ Критические компоненты не инициализированы")
 		return
 	}
 
 	// Получаем список всех активных чатов
 	b.settingsMutex.RLock()
-	if b.chatSettings == nil {
-		log.Printf("[StartupMessage] ❌ КРИТИЧЕСКАЯ ОШИБКА: b.chatSettings = nil")
-		b.settingsMutex.RUnlock()
-		return
-	}
-
 	activeChatIDs := make([]int64, 0, len(b.chatSettings))
 	for chatID, settings := range b.chatSettings {
 		if settings != nil && settings.Active {
@@ -1195,50 +1183,48 @@ func (b *Bot) sendStartupMessageToAllChats() {
 	}
 	b.settingsMutex.RUnlock()
 
-	activeCount := len(activeChatIDs)
-	log.Printf("[StartupMessage] Найдено %d активных чатов для отправки startup message", activeCount)
-
-	if activeCount == 0 {
-		log.Printf("[StartupMessage] ⚠️ Нет активных чатов для отправки startup message")
-		// Давайте также покажем, что у нас есть в chatSettings
-		b.settingsMutex.RLock()
-		log.Printf("[StartupMessage] Всего чатов в памяти: %d", len(b.chatSettings))
-		for chatID, settings := range b.chatSettings {
-			if settings == nil {
-				log.Printf("[StartupMessage] Чат %d: настройки = nil", chatID)
-			} else {
-				log.Printf("[StartupMessage] Чат %d: Active=%v", chatID, settings.Active)
-			}
-		}
-		b.settingsMutex.RUnlock()
+	log.Printf("[StartupGreeting] Найдено %d активных чатов", len(activeChatIDs))
+	if len(activeChatIDs) == 0 {
 		return
 	}
 
-	// Отправляем startup message во все активные чаты
-	var successCount int32
-	var errorCount int32
+	// Генерируем приветственное сообщение через LLM с отдельным промптом
+	greetingText := "Я снова в сети! 👋"
+	if b.llm != nil && b.config.StartupGreetingPrompt != "" {
+		prompt := b.enrichPromptWithPersonality(b.config.StartupGreetingPrompt, 0, "startup_greeting")
+		generated, err := b.llm.GenerateResponseByType(llm.ResponseTypeWelcome, prompt, "", float32(b.config.GeminiTemperatureNormal))
+		if err != nil {
+			slog.Error("Ошибка генерации стартового приветствия, fallback на стандартное", "error", err, "prompt_len", len(prompt))
+			log.Printf("[StartupGreeting] ❌ Ошибка генерации приветствия: %v (использую стандартное)", err)
+		} else {
+			slog.Debug("LLM ответ на стартовое приветствие", "request_len", len(prompt), "response_len", len(generated), "response", generated)
+			if cleaned := cleanupLLMResponse(generated); cleaned != "" {
+				greetingText = cleaned
+				slog.Debug("Очищенный текст стартового приветствия", "text", greetingText)
+			}
+		}
+	}
 
+	// Отправляем во все активные чаты
 	var wg sync.WaitGroup
 	for _, chatID := range activeChatIDs {
 		wg.Add(1)
 		go func(cid int64) {
 			defer wg.Done()
-
-			log.Printf("[StartupMessage] Отправка startup message в чат %d...", cid)
-			// Добавляем небольшую случайную задержку для равномерной нагрузки
 			time.Sleep(time.Duration(b.randSource.Intn(3000)) * time.Millisecond)
 
-			// Отправляем startup message
-			b.sendStartupMessage(cid)
-
-			atomic.AddInt32(&successCount, 1)
-			log.Printf("[StartupMessage] ✅ Startup message отправлен в чат %d", cid)
+			msg := tgbotapi.NewMessage(cid, greetingText)
+			if _, err := b.api.Send(msg); err != nil {
+				log.Printf("[StartupGreeting] ❌ Чат %d: ошибка отправки: %v", cid, err)
+				if b.isUserBlockedError(err) {
+					b.markChatAsInactive(cid)
+				}
+			} else {
+				log.Printf("[StartupGreeting] ✅ Чат %d: приветствие отправлено", cid)
+			}
 		}(chatID)
 	}
-
-	// Ждем завершения отправки во все чаты
 	wg.Wait()
 
-	log.Printf("[StartupMessage] 🎉 Завершена отправка startup message: успешно=%d, ошибок=%d, всего=%d",
-		successCount, errorCount, activeCount)
+	log.Printf("[StartupGreeting] 🎉 Завершено. Отправлено в %d чатов", len(activeChatIDs))
 }

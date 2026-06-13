@@ -2,8 +2,10 @@ package bot
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
+	"net"
 	"strings"
 	"sync"
 	"time"
@@ -14,6 +16,16 @@ import (
 )
 
 var _ llm.LLMClient = (*LLMRouterV2)(nil)
+
+// Sampling parameter constants for response generation.
+// These are tuned for Gemma 4 12B Uncensored (Russian morphology) and prevent infinite loops.
+const (
+	// Stage 2: Response Generation (creative text)
+	responseTemperature = 0.7
+
+	// Stage 1: Decision Making (JSON output)
+	decisionTemperature = 0.2 // CRITICAL: low temp prevents JSON breakage
+)
 
 // LLMRouterV2 — capability-based LLM router with circuit breakers and routing profiles.
 type LLMRouterV2 struct {
@@ -83,6 +95,7 @@ func (r *LLMRouterV2) refreshCaches() {
 	r.audioGens = nil
 
 	for name := range r.config.LLM.Providers {
+		pcfg := r.config.LLM.Providers[name]
 		provider, err := r.registry.Resolve(name, r.toLLMProviderConfig(name))
 		if err != nil {
 			if r.debug {
@@ -94,8 +107,10 @@ func (r *LLMRouterV2) refreshCaches() {
 		if tg, ok := provider.(llm.TextGenerator); ok {
 			r.textGens = append(r.textGens, tg)
 		}
-		if at, ok := provider.(llm.AudioTranscriber); ok {
-			r.audioTranscs = append(r.audioTranscs, at)
+		if pcfg.Enabled && r.config.VoiceMessages.Enabled {
+			if at, ok := provider.(llm.AudioTranscriber); ok {
+				r.audioTranscs = append(r.audioTranscs, at)
+			}
 		}
 		if emb, ok := provider.(llm.Embedder); ok {
 			r.embedders = append(r.embedders, emb)
@@ -103,11 +118,15 @@ func (r *LLMRouterV2) refreshCaches() {
 		if ia, ok := provider.(llm.ImageAnalyzer); ok {
 			r.imageAnalyzers = append(r.imageAnalyzers, ia)
 		}
-		if ig, ok := provider.(llm.ImageGenerator); ok {
-			r.imageGens = append(r.imageGens, ig)
+		if pcfg.Enabled && r.config.FreeWill.ImageGeneration.MaxPerInterval > 0 {
+			if ig, ok := provider.(llm.ImageGenerator); ok {
+				r.imageGens = append(r.imageGens, ig)
+			}
 		}
-		if ag, ok := provider.(llm.AudioGenerator); ok {
-			r.audioGens = append(r.audioGens, ag)
+		if pcfg.Enabled && r.config.TTS.Provider != "" {
+			if ag, ok := provider.(llm.AudioGenerator); ok {
+				r.audioGens = append(r.audioGens, ag)
+			}
 		}
 	}
 
@@ -179,12 +198,22 @@ func (r *LLMRouterV2) toLLMProviderConfig(name string) llm.ProviderConfig {
 	if !ok {
 		return llm.ProviderConfig{Name: name, Debug: r.debug}
 	}
+	// Прокидываем model_name из YAML models.text в Extra для провайдеров
+	extra := make(map[string]any)
+	for k, v := range cfg.Extra {
+		extra[k] = v
+	}
+	if cfg.Models != nil {
+		if textModel, ok := cfg.Models["text"]; ok && textModel != "" {
+			extra["model_name"] = textModel
+		}
+	}
 	return llm.ProviderConfig{
 		Name:    name,
 		APIKey:  cfg.APIKey,
 		BaseURL: cfg.BaseURL,
 		Debug:   cfg.Debug || r.debug,
-		Extra:   cfg.Extra,
+		Extra:   extra,
 	}
 }
 
@@ -195,7 +224,7 @@ func (r *LLMRouterV2) recordResult(providerName string, err error) {
 		r.getBreaker(providerName).RecordSuccess()
 		return
 	}
-	if !r.isRetryableError(err) {
+	if !isRetryableError(err) {
 		return // не-retryable ошибки не должны влиять на CB
 	}
 	if r.getBreaker(providerName).RecordFailure() {
@@ -213,18 +242,93 @@ func (r *LLMRouterV2) recordFailure(name string, err error) {
 	r.recordResult(name, err)
 }
 
-// isRetryableError проверяет, является ли ошибка retryable (429/5xx/circuit breaker open).
-func (r *LLMRouterV2) isRetryableError(err error) bool {
+// isRetryableError проверяет, является ли ошибка retryable (429/5xx/таймауты).
+func isRetryableError(err error) bool {
 	if err == nil {
 		return false
 	}
+
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return true
+	}
+
 	errStr := err.Error()
-	return strings.Contains(errStr, "429") ||
-		strings.Contains(errStr, "500") ||
-		strings.Contains(errStr, "502") ||
-		strings.Contains(errStr, "503") ||
-		strings.Contains(errStr, "504") ||
-		strings.Contains(errStr, "circuit breaker")
+	if strings.Contains(errStr, "deadline exceeded") {
+		return true
+	}
+	if strings.Contains(errStr, "Client.Timeout") {
+		return true
+	}
+
+	if strings.Contains(errStr, "429") {
+		return true
+	}
+	if strings.Contains(errStr, "500") || strings.Contains(errStr, "502") ||
+		strings.Contains(errStr, "503") || strings.Contains(errStr, "504") {
+		return true
+	}
+	if strings.Contains(errStr, "circuit breaker is open") {
+		return true
+	}
+
+	return false
+}
+
+// providerTimeout возвращает таймаут запроса для провайдера из конфига.
+func (r *LLMRouterV2) providerTimeout(name string) int {
+	if cfg, ok := r.config.LLM.Providers[name]; ok && cfg.RequestTimeoutSeconds > 0 {
+		return cfg.RequestTimeoutSeconds
+	}
+	return 300
+}
+
+// getRetryConfig возвращает конфигурацию retry для провайдера.
+func (r *LLMRouterV2) getRetryConfig(name string) config.RetryConfig {
+	if cfg, ok := r.config.LLM.Providers[name]; ok {
+		return cfg.Retry
+	}
+	return config.RetryConfig{}
+}
+
+// tryWithRetry выполняет fn с повторными попытками и экспоненциальным backoff.
+func (r *LLMRouterV2) tryWithRetry(
+	ctx context.Context,
+	providerName string,
+	fn func(context.Context) (string, error),
+	retryCfg config.RetryConfig,
+) (string, error) {
+	var lastErr error
+	delay := time.Duration(retryCfg.RetryDelayMs) * time.Millisecond
+
+	for attempt := 0; attempt <= retryCfg.MaxRetries; attempt++ {
+		if attempt > 0 {
+			log.Printf("[LLMRouterV2] Retry %d/%d для %s (ошибка: %v)",
+				attempt, retryCfg.MaxRetries, providerName, lastErr)
+			time.Sleep(delay)
+			delay = time.Duration(float64(delay) * retryCfg.BackoffMultiplier)
+		}
+
+		reqCtx, cancel := context.WithTimeout(ctx,
+			time.Duration(r.providerTimeout(providerName))*time.Second)
+
+		result, err := fn(reqCtx)
+		cancel()
+
+		if err == nil {
+			return result, nil
+		}
+
+		lastErr = err
+		if !isRetryableError(err) {
+			break
+		}
+	}
+	return "", fmt.Errorf("%s: все %d попыток исчерпаны: %w",
+		providerName, retryCfg.MaxRetries+1, lastErr)
 }
 
 // tryTextGenerator — обёртка с CircuitBreaker для вызовов TextGenerator.
@@ -235,7 +339,7 @@ func (r *LLMRouterV2) tryTextGenerator(gen llm.TextGenerator, breaker *llm.Circu
 
 	result, err := fn()
 	if err != nil {
-		if r.isRetryableError(err) {
+		if isRetryableError(err) {
 			breaker.RecordFailure()
 		}
 	} else {
@@ -267,7 +371,7 @@ func (r *LLMRouterV2) withFirstTextGenExcept(except map[string]bool, fn func(llm
 			return result, nil
 		}
 		lastErr = err
-		if !r.isRetryableError(err) {
+		if !isRetryableError(err) {
 			return "", fmt.Errorf("LLMRouterV2: %w", err)
 		}
 		if r.debug {
@@ -300,7 +404,7 @@ func (r *LLMRouterV2) withFirstTextGen(fn func(llm.TextGenerator) (string, error
 			return result, nil
 		}
 		lastErr = err
-		if !r.isRetryableError(err) {
+		if !isRetryableError(err) {
 			return "", fmt.Errorf("LLMRouterV2: %w", err)
 		}
 		if r.debug {
@@ -353,7 +457,7 @@ func (r *LLMRouterV2) GenerateResponseByType(responseType llm.ResponseType, syst
 	}
 	tried[profile.Provider] = true
 
-	if !r.isRetryableError(err) {
+	if !isRetryableError(err) {
 		return "", fmt.Errorf("LLMRouterV2: %w", err)
 	}
 
@@ -367,7 +471,7 @@ func (r *LLMRouterV2) GenerateResponseByType(responseType llm.ResponseType, syst
 			return result, nil
 		}
 		tried[profile.FallbackProvider] = true
-		if !r.isRetryableError(err) {
+		if !isRetryableError(err) {
 			return "", fmt.Errorf("LLMRouterV2: %w", err)
 		}
 	}
@@ -376,6 +480,72 @@ func (r *LLMRouterV2) GenerateResponseByType(responseType llm.ResponseType, syst
 	return r.withFirstTextGenExcept(tried, func(gen llm.TextGenerator) (string, error) {
 		return gen.GenerateResponseByType(responseType, systemPrompt, contextText, effectiveTemp)
 	})
+}
+
+// GenerateChatResponse delegates ChatML generation through the provider chain.
+func (r *LLMRouterV2) GenerateChatResponse(responseType llm.ResponseType, messages []llm.ChatMessage, temperature float32) (string, error) {
+	if r.debug {
+		log.Printf("[LLMRouterV2 DEBUG] GenerateChatResponse: type=%s, messages=%d", responseType, len(messages))
+	}
+
+	yamlKey := llm.ResponseTypeToYAML(responseType)
+	profile := r.config.GetRoutingProfile(yamlKey)
+	effectiveTemp := float32(profile.Temperature)
+	if effectiveTemp <= 0 {
+		effectiveTemp = temperature
+	}
+
+	if profile.Provider == "" {
+		return r.withFirstTextGen(func(gen llm.TextGenerator) (string, error) {
+			return gen.GenerateChatResponse(responseType, messages, effectiveTemp)
+		})
+	}
+
+	tried := make(map[string]bool)
+
+	result, err := r.tryProviderForChatType(profile.Provider, responseType, messages, effectiveTemp)
+	if err == nil {
+		return result, nil
+	}
+	tried[profile.Provider] = true
+
+	if !isRetryableError(err) {
+		return "", fmt.Errorf("LLMRouterV2: %w", err)
+	}
+
+	if profile.FallbackProvider != "" && !tried[profile.FallbackProvider] {
+		result, err = r.tryProviderForChatType(profile.FallbackProvider, responseType, messages, effectiveTemp)
+		if err == nil {
+			return result, nil
+		}
+		tried[profile.FallbackProvider] = true
+		if !isRetryableError(err) {
+			return "", fmt.Errorf("LLMRouterV2: %w", err)
+		}
+	}
+
+	return r.withFirstTextGenExcept(tried, func(gen llm.TextGenerator) (string, error) {
+		return gen.GenerateChatResponse(responseType, messages, effectiveTemp)
+	})
+}
+
+func (r *LLMRouterV2) tryProviderForChatType(name string, responseType llm.ResponseType, messages []llm.ChatMessage, temperature float32) (string, error) {
+	tg := r.findTextGenerator(name)
+	if tg == nil {
+		return "", fmt.Errorf("provider %q does not support text generation or not available", name)
+	}
+
+	breaker := r.getBreaker(name)
+	if !breaker.Allow() {
+		return "", fmt.Errorf("provider %q circuit breaker is open", name)
+	}
+
+	retryCfg := r.getRetryConfig(name)
+	result, err := r.tryWithRetry(context.Background(), name, func(ctx context.Context) (string, error) {
+		return tg.GenerateChatResponse(responseType, messages, temperature)
+	}, retryCfg)
+	r.recordFailure(name, err)
+	return result, err
 }
 
 // tryProviderForType пытается выполнить генерацию через конкретного провайдера по имени,
@@ -391,7 +561,10 @@ func (r *LLMRouterV2) tryProviderForType(name string, responseType llm.ResponseT
 		return "", fmt.Errorf("provider %q circuit breaker is open", name)
 	}
 
-	result, err := tg.GenerateResponseByType(responseType, systemPrompt, contextText, temperature)
+	retryCfg := r.getRetryConfig(name)
+	result, err := r.tryWithRetry(context.Background(), name, func(ctx context.Context) (string, error) {
+		return tg.GenerateResponseByType(responseType, systemPrompt, contextText, temperature)
+	}, retryCfg)
 	r.recordFailure(name, err)
 	return result, err
 }
@@ -444,7 +617,7 @@ func (r *LLMRouterV2) TranscribeAudio(audioData []byte, mimeType string) (string
 			return result, nil
 		}
 		lastErr = err
-		if !r.isRetryableError(err) {
+		if !isRetryableError(err) {
 			return "", fmt.Errorf("LLMRouterV2: %w", err)
 		}
 	}
@@ -482,7 +655,7 @@ func (r *LLMRouterV2) EmbedContent(text string) ([]float32, error) {
 			return result, nil
 		}
 		lastErr = err
-		if !r.isRetryableError(err) {
+		if !isRetryableError(err) {
 			return nil, fmt.Errorf("LLMRouterV2: %w", err)
 		}
 	}
@@ -520,7 +693,7 @@ func (r *LLMRouterV2) GenerateContentWithImage(ctx context.Context, systemPrompt
 			return result, nil
 		}
 		lastErr = err
-		if !r.isRetryableError(err) {
+		if !isRetryableError(err) {
 			return "", fmt.Errorf("LLMRouterV2: %w", err)
 		}
 	}
@@ -558,7 +731,7 @@ func (r *LLMRouterV2) GenerateImageWithEdit(ctx context.Context, baseImageData [
 			return result, nil
 		}
 		lastErr = err
-		if !r.isRetryableError(err) {
+		if !isRetryableError(err) {
 			return nil, fmt.Errorf("LLMRouterV2: %w", err)
 		}
 	}
@@ -596,7 +769,7 @@ func (r *LLMRouterV2) GenerateAudio(text string, params llm.AudioParams) ([]byte
 			return result, nil
 		}
 		lastErr = err
-		if !r.isRetryableError(err) {
+		if !isRetryableError(err) {
 			return nil, fmt.Errorf("LLMRouterV2: %w", err)
 		}
 	}
@@ -605,6 +778,39 @@ func (r *LLMRouterV2) GenerateAudio(text string, params llm.AudioParams) ([]byte
 		return nil, fmt.Errorf("LLMRouterV2: all audio generators failed: %w", lastErr)
 	}
 	return nil, fmt.Errorf("LLMRouterV2: no audio generators available")
+}
+
+// ============================================================================
+// Status helpers — для /status и диагностики
+// ============================================================================
+
+// GetDefaultProviderName возвращает имя провайдера по умолчанию из V2-конфига
+func (r *LLMRouterV2) GetDefaultProviderName() string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.config.LLM.DefaultProvider
+}
+
+// GetDefaultTextModel возвращает имя текстовой модели провайдера по умолчанию
+func (r *LLMRouterV2) GetDefaultTextModel() string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	defaultProvider := r.config.LLM.DefaultProvider
+	if providerCfg, ok := r.config.LLM.Providers[defaultProvider]; ok {
+		if model, ok := providerCfg.Models["text"]; ok && model != "" {
+			return model
+		}
+	}
+
+	// Fallback: ищем модель text у любого доступного провайдера
+	for _, pcfg := range r.config.LLM.Providers {
+		if model, ok := pcfg.Models["text"]; ok && model != "" {
+			return model
+		}
+	}
+
+	return "неизвестная модель"
 }
 
 // ============================================================================

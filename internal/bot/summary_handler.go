@@ -87,7 +87,8 @@ func (b *Bot) createAndSendSummary(chatID int64) {
 
 	// Используем новый унифицированный форматтер
 	formatter := NewUnifiedMessageFormatter(b.storage, b.config.TimeZone)
-	formattedHistory := formatter.FormatMessages(chatID, userHistory)
+	formatter.SetDisableUserProfiles(b.config.DisableUserProfiles)
+	formattedHistory := formatter.FormatMessagesXML(chatID, userHistory)
 
 	// Диагностика размера контекста
 	rh := utf8.RuneCountInString(formattedHistory)
@@ -149,32 +150,6 @@ func (b *Bot) createAndSendSummary(chatID int64) {
 
 	// 5. Подготовка к отправке
 	finalSummary := strings.TrimSpace(summary)
-
-	// ИСПРАВЛЕНИЕ: Специальная постобработка саммари с полным контекстом
-	// Если саммари был fallback (короткий), используем полную историю для постобработки
-	if b.messagePostProcessor != nil {
-		if strings.Contains(summary, "Короткое саммари (fallback)") {
-			// Для fallback-саммари используем стандартную постобработку
-			log.Printf("[Summary] Chat %d: Используется стандартная постобработка fallback-саммари", chatID)
-			processedSummary, err := b.messagePostProcessor.ProcessMessage(finalSummary, MessageTypeSummary, chatID)
-			if err != nil {
-				log.Printf("[MessagePostProcessor] Ошибка постобработки саммари для чата %d: %v", chatID, err)
-				// Продолжаем с fallback-текстом при ошибке
-			} else {
-				finalSummary = processedSummary
-			}
-		} else {
-			// Для нормального саммари используем стандартную постобработку
-			log.Printf("[Summary] Chat %d: Используется стандартная постобработка саммари", chatID)
-			processedSummary, err := b.messagePostProcessor.ProcessMessage(finalSummary, MessageTypeSummary, chatID)
-			if err != nil {
-				log.Printf("[MessagePostProcessor] Ошибка постобработки саммари для чата %d: %v", chatID, err)
-				// Продолжаем с оригинальным текстом при ошибке
-			} else {
-				finalSummary = processedSummary
-			}
-		}
-	}
 
 	// Санитизируем Markdown разметку, чтобы избежать ошибок парсинга
 	finalSummary = sanitizeMarkdown(finalSummary)
@@ -502,19 +477,8 @@ func (b *Bot) createAndSendWeeklySummary(chatID int64) {
 	llmDuration := time.Since(llmStartTime)
 	log.Printf("[WeeklySummary][HANDLER] Chat %d: LLM сгенерировал еженедельное саммари длиной %d символов за %v", chatID, len(weeklySummary), llmDuration)
 
-	// Постобработка саммари через MessagePostProcessor
-	finalSummary := strings.TrimSpace(weeklySummary)
-	if b.messagePostProcessor != nil {
-		processedSummary, err := b.messagePostProcessor.ProcessMessage(finalSummary, MessageTypeWeeklySummary, chatID)
-		if err != nil {
-			log.Printf("[MessagePostProcessor] Ошибка постобработки еженедельного саммари для чата %d: %v", chatID, err)
-			// Продолжаем с оригинальным текстом при ошибке
-		} else {
-			finalSummary = processedSummary
-		}
-	}
-
 	// Санитизируем Markdown разметку
+	finalSummary := strings.TrimSpace(weeklySummary)
 	finalSummary = sanitizeMarkdown(finalSummary)
 
 	// Добавляем заголовок к еженедельному саммари

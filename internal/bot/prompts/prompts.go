@@ -1,11 +1,13 @@
 package prompts
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"text/template"
 )
 
 // GetPromptDir возвращает путь к директории с промптами
@@ -117,6 +119,41 @@ func LoadPromptOrEnv(name, envVal, defaultVal string) string {
 	}
 	// Затем default
 	return defaultVal
+}
+
+// LoadAndRenderPrompt загружает промпт и рендерит его с данными через text/template.
+// Если data == nil, возвращается сырой текст без рендеринга.
+func LoadAndRenderPrompt(name string, data *TemplateData) (string, error) {
+	raw, err := LoadPrompt(name)
+	if err != nil || raw == "" {
+		return raw, err
+	}
+
+	if data == nil {
+		return raw, nil
+	}
+
+	tmpl, err := template.New(name).Parse(raw)
+	if err != nil {
+		return raw, fmt.Errorf("ошибка парсинга шаблона %s: %w", name, err)
+	}
+
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, data); err != nil {
+		return raw, fmt.Errorf("ошибка рендеринга шаблона %s: %w", name, err)
+	}
+
+	return buf.String(), nil
+}
+
+// LoadAndRenderPromptWithDefault загружает промпт, рендерит с данными,
+// а если промпт не найден — возвращает defaultVal (без рендеринга).
+func LoadAndRenderPromptWithDefault(name string, defaultVal string, data *TemplateData) string {
+	content, err := LoadAndRenderPrompt(name, data)
+	if err != nil || content == "" {
+		return defaultVal
+	}
+	return content
 }
 
 // GetPromptFilenames возвращает список всех .txt файлов в директории промптов.

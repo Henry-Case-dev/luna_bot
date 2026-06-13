@@ -159,19 +159,8 @@ func (b *Bot) analyzeCausalLinksForChat(chatID int64) error {
 	}
 	formattedContext := b.formatMessagesForCausalAnalysis(chatID, messages)
 
-	// 3. Получаем личность для обогащения промпта
-	personalityContext, err := b.getPersonalityContext(chatID, "causal_analysis")
-	if err != nil {
-		log.Printf("[WARN][CausalAnalyzer] Не удалось получить контекст личности: %v", err)
-		personalityContext = ""
-	}
-
-	// 4. Формируем промпт для анализа
-	analysisPrompt := b.config.CausalAnalysisPrompt
-	if personalityContext != "" {
-		analysisPrompt = strings.ReplaceAll(analysisPrompt, "{PERSONALITY_CONTEXT}", personalityContext)
-	}
-	analysisPrompt = strings.ReplaceAll(analysisPrompt, "{STYLE_INSTRUCTIONS}", b.getStyleInstructions())
+	// 3. Формируем промпт для анализа (обогащение личности через унифицированный метод)
+	analysisPrompt := b.enrichPromptWithPersonality(b.config.CausalAnalysisPrompt, chatID, "causal_analysis")
 
 	// Добавляем историю сообщений в конец промпта
 	fullPrompt := analysisPrompt + "\n\n" + formattedContext
@@ -455,18 +444,8 @@ func (b *Bot) GetCausalInfluence(chatID int64, currentSituation string) (*Behavi
 	// Формируем контекст каузальной памяти
 	causalContext := b.formatCausalContext(entries)
 
-	// Получаем личность для обогащения промпта
-	personalityContext, err := b.getPersonalityContext(chatID, "causal_influence")
-	if err != nil {
-		personalityContext = ""
-	}
-
-	// Формируем промпт для анализа влияния
-	influencePrompt := b.config.CausalInfluencePrompt
-	if personalityContext != "" {
-		influencePrompt = strings.ReplaceAll(influencePrompt, "{PERSONALITY_CONTEXT}", personalityContext)
-	}
-	influencePrompt = strings.ReplaceAll(influencePrompt, "{STYLE_INSTRUCTIONS}", b.getStyleInstructions())
+	// Формируем промпт для анализа влияния (обогащение личности через унифицированный метод)
+	influencePrompt := b.enrichPromptWithPersonality(b.config.CausalInfluencePrompt, chatID, "causal_influence")
 	influencePrompt = strings.ReplaceAll(influencePrompt, "{causal_context}", causalContext)
 	influencePrompt = strings.ReplaceAll(influencePrompt, "{current_situation}", currentSituation)
 

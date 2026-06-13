@@ -49,13 +49,6 @@ var ResponseTypeToYAMLKey = map[ResponseType]string{
 	ResponseTypeFreeWillTakeResponse:           "free_will_take_response",
 	ResponseTypeFreeWillReaction:               "free_will_reaction",
 
-	// Message Post-Processor
-	ResponseTypePostProcessSingleWord:  "post_process_single",
-	ResponseTypePostProcessShort:       "post_process_short",
-	ResponseTypePostProcessLong:        "post_process_long",
-	ResponseTypePostProcessIntelligent: "post_process_intelligent",
-	ResponseTypePostProcessSummary:     "post_process_summary",
-
 	// Дополнительные
 	ResponseTypePhotoAnalysis:        "photo_analysis",
 	ResponseTypeWebSearchTrigger:     "web_search_trigger",

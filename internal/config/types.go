@@ -65,9 +65,6 @@ type Config struct {
 	// Общие настройки LLM
 	LLMProvider   LLMProvider
 	DefaultPrompt string
-	DirectPrompt  string
-	// --- Настройки включения/выключения промптов ---
-	DirectPromptEnabled bool // Включен ли DIRECT_PROMPT (автоответы на обращения)
 	// --- Новые промпты для классификации и серьезного ответа ---
 	ClassifyDirectMessagePrompt string
 	SeriousDirectPrompt         string
@@ -75,10 +72,7 @@ type Config struct {
 	DailyTakePrompt string
 	SummaryPrompt   string
 	// --- Новые поля для настроек по умолчанию ---
-	DefaultConversationStyle string  // Стиль общения по умолчанию
 	DefaultTemperature       float64 // Температура по умолчанию
-	DefaultModel             string  // Модель LLM по умолчанию // ПРИМЕЧАНИЕ: Это поле больше не используется напрямую для выбора модели LLM! Используются специфичные для провайдера поля ниже.
-	DefaultSafetyThreshold   string  // Уровень безопасности Gemini по умолчанию
 	// --- Конец новых полей ---
 	// Настройки Gemini
 	GeminiAPIKey    string
@@ -126,7 +120,6 @@ type Config struct {
 	SRACH_WARNING_PROMPT  string
 	SRACH_ANALYSIS_PROMPT string
 	SRACH_CONFIRM_PROMPT  string
-	SrachKeywords         []string
 	SrachAnalysisEnabled  bool // Значение по умолчанию из .env
 	// Настройки времени и интервалов
 	DailyTakeTime        int
@@ -141,10 +134,6 @@ type Config struct {
 	SummaryMaxParts       int    // Максимальное количество частей при разбивке длинного суточного саммари
 	WeeklySummaryPrompt   string // Промпт для генерации еженедельного саммари
 
-	// Настройки поиска саммари
-	WeeklySummarySearchMethod string // Метод поиска саммари: "flags", "keywords", "both"
-	SummaryFlagsEnabled       bool   // Включить поиск по флагам в БД
-	SummaryKeywordsEnabled    bool   // Включить поиск по ключевым словам
 	// --- Конец настроек еженедельного саммари ---
 	MinMessages                  int
 	MaxMessages                  int
@@ -172,6 +161,8 @@ type Config struct {
 	AdminUsernames []string
 	// Промпт для приветствия
 	WelcomePrompt string
+	// Промпт для приветствия при запуске бота (Startup Greeting)
+	StartupGreetingPrompt string
 	// Промпт для форматирования голоса
 	VoiceFormatPrompt string
 	// Включена ли авто-транскрипция голоса по умолчанию
@@ -385,6 +376,9 @@ type Config struct {
 	// --- НОВАЯ настройка: Сервис дисамбигуации пользователей ---
 	DisambiguationEnabled bool `env:"DISAMBIGUATION_ENABLED" envDefault:"true"` // Включить/выключить систему дисамбигуации
 
+	// --- Диагностический флаг: отключение профилей пользователей ---
+	DisableUserProfiles bool `env:"DISABLE_USER_PROFILES" envDefault:"false"` // Отключить загрузку профилей пользователей
+
 	// --- НОВЫЕ настройки переработки повторений ---
 	AntiRepetitionReworkEnabled        bool    `env:"ANTI_REPETITION_REWORK_ENABLED" envDefault:"true"`
 	AntiRepetitionMaxReworkAttempts    int     `env:"ANTI_REPETITION_MAX_REWORK_ATTEMPTS" envDefault:"2"`
@@ -394,54 +388,15 @@ type Config struct {
 	AntiRepetitionLocalReworkMaxLength int     `env:"ANTI_REPETITION_LOCAL_REWORK_MAX_LENGTH" envDefault:"50"`
 	// --- КОНЕЦ настроек системы анти-повторений ---
 
-	// --- НОВЫЕ настройки Message Post-Processor ---
-	MessagePostProcessorEnabled              bool `env:"MESSAGE_POST_PROCESSOR_ENABLED" envDefault:"true"`
-	MessagePostProcessorRandomizationEnabled bool `env:"MESSAGE_POST_PROCESSOR_RANDOMIZATION_ENABLED" envDefault:"true"`
 
-	// Вероятности для разных типов промптов
-	MessagePostProcessorSingleWordProbability     float64 `env:"MESSAGE_POST_PROCESSOR_SINGLE_WORD_PROBABILITY" envDefault:"0.20"`
-	MessagePostProcessorShortSentencesProbability float64 `env:"MESSAGE_POST_PROCESSOR_SHORT_SENTENCES_PROBABILITY" envDefault:"0.35"`
-	MessagePostProcessorLongMessagesProbability   float64 `env:"MESSAGE_POST_PROCESSOR_LONG_MESSAGES_PROBABILITY" envDefault:"0.25"`
-
-	// Промпты для постобработки
-	MessagePostProcessorSingleWordPrompt     string `env:"MESSAGE_POST_PROCESSOR_SINGLE_WORD_PROMPT"`
-	MessagePostProcessorShortSentencesPrompt string `env:"MESSAGE_POST_PROCESSOR_SHORT_SENTENCES_PROMPT"`
-	MessagePostProcessorLongMessagesPrompt   string `env:"MESSAGE_POST_PROCESSOR_LONG_MESSAGES_PROMPT"`
-	MessagePostProcessorIntelligentPrompt    string `env:"MESSAGE_POST_PROCESSOR_INTELLIGENT_PROMPT"`
-	MessagePostProcessorSummaryPrompt        string `env:"MESSAGE_POST_PROCESSOR_SUMMARY_PROMPT"`
-
-	// Настройки длины сообщений
-	MessagePostProcessorMinLength                    int `env:"MESSAGE_POST_PROCESSOR_MIN_LENGTH" envDefault:"10"`
-	MessagePostProcessorMaxLength                    int `env:"MESSAGE_POST_PROCESSOR_MAX_LENGTH" envDefault:"2000"`
-	MessagePostProcessorLongMessageThreshold         int `env:"MESSAGE_POST_PROCESSOR_LONG_MESSAGE_THRESHOLD" envDefault:"100"`
-	MessagePostProcessorForceLongProcessingThreshold int `env:"MESSAGE_POST_PROCESSOR_FORCE_LONG_PROCESSING_THRESHOLD" envDefault:"200"`
-
-	// Настройки производительности
-	MessagePostProcessorTimeoutSeconds int     `env:"MESSAGE_POST_PROCESSOR_TIMEOUT_SECONDS" envDefault:"15"`
-	MessagePostProcessorTemperature    float64 `env:"MESSAGE_POST_PROCESSOR_TEMPERATURE" envDefault:"0.9"`
-
-	// Настройки кэширования
-	MessagePostProcessorCacheEnabled    bool `env:"MESSAGE_POST_PROCESSOR_CACHE_ENABLED" envDefault:"true"`
-	MessagePostProcessorCacheTTLMinutes int  `env:"MESSAGE_POST_PROCESSOR_CACHE_TTL_MINUTES" envDefault:"30"`
-
-	// Настройки исключений
-	MessagePostProcessorExcludeTypes         []string `env:"MESSAGE_POST_PROCESSOR_EXCLUDE_TYPES" envDefault:"system,error,admin"`
-	MessagePostProcessorWeeklySummaryExclude bool     `env:"MESSAGE_POST_PROCESSOR_WEEKLY_SUMMARY_EXCLUDE" envDefault:"true"`
-
-	// Настройки отладки
-	MessagePostProcessorDebugLogging        bool `env:"MESSAGE_POST_PROCESSOR_DEBUG_LOGGING" envDefault:"true"`
-	MessagePostProcessorLogOriginalMessages bool `env:"MESSAGE_POST_PROCESSOR_LOG_ORIGINAL_MESSAGES" envDefault:"true"`
-
-	// Настройки кэша замен имен пользователей
-	MessagePostProcessorReplacementCacheEnabled    bool `env:"MESSAGE_POST_PROCESSOR_REPLACEMENT_CACHE_ENABLED" envDefault:"true"`
-	MessagePostProcessorReplacementCacheTTLMinutes int  `env:"MESSAGE_POST_PROCESSOR_REPLACEMENT_CACHE_TTL_MINUTES" envDefault:"10"`
-	// --- КОНЕЦ настроек Message Post-Processor ---
 
 	// --- НОВЫЕ настройки эмоциональной системы (Этап 2) ---
 	EmotionalLearningEnabled          bool `env:"EMOTIONAL_LEARNING_ENABLED" envDefault:"true"`
 	EmotionalAnalysisIntervalHours    int  `env:"EMOTIONAL_ANALYSIS_INTERVAL_HOURS" envDefault:"2"`
 	EmotionalAnalysisLookbackMessages int  `env:"EMOTIONAL_ANALYSIS_LOOKBACK_MESSAGES" envDefault:"100"`
 	EmotionalMemoryRetentionDays      int  `env:"EMOTIONAL_MEMORY_RETENTION_DAYS" envDefault:"30"`
+	EmotionalMinMessagesForAnalysis   int  `env:"EMOTIONAL_MIN_MESSAGES_FOR_ANALYSIS" envDefault:"20"`
+	EmotionalAnalysisDebounceHours    int  `env:"EMOTIONAL_ANALYSIS_DEBOUNCE_HOURS" envDefault:"6"`
 
 	EmotionalAnalysisPrompt            string  `env:"EMOTIONAL_ANALYSIS_PROMPT"`
 	EmotionalAnalysisPromptProvider    string  `env:"EMOTIONAL_ANALYSIS_PROMPT_PROVIDER" envDefault:"gemini"`

@@ -13,7 +13,10 @@ require (
 	google.golang.org/api v0.186.0
 )
 
-require go.mongodb.org/mongo-driver v1.17.3
+require (
+	go.mongodb.org/mongo-driver v1.17.3
+	gopkg.in/yaml.v3 v3.0.1
+)
 
 require (
 	cloud.google.com/go v0.115.0 // indirect
@@ -55,5 +58,4 @@ require (
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20240617180043-68d350f18fd4 // indirect
 	google.golang.org/grpc v1.64.1 // indirect
 	google.golang.org/protobuf v1.34.2 // indirect
-	gopkg.in/yaml.v3 v3.0.1 // indirect
 )

@@ -20,36 +20,42 @@ func (b *Bot) handleCommand(message *tgbotapi.Message) {
 	userID := message.From.ID
 	username := message.From.UserName
 
-	// Get current settings for the chat
+	// Delete the command message itself to keep the chat clean
+	b.deleteMessageSilent(chatID, message.MessageID)
+
+	// Commands that work without initialized settings
+	switch command {
+	case "start":
+		b.sendMainMenu(chatID, 0)
+		return
+	case "menu":
+		b.sendMainMenu(chatID, 0)
+		return
+	case "state":
+		log.Printf("[CMD] Пользователь %s (%d) запросил состояние бота в чате %d", username, userID, chatID)
+		b.sendStateInfo(chatID)
+		return
+	}
+
+	// Get current settings for the chat (needed by remaining commands)
 	b.settingsMutex.RLock()
 	settings, exists := b.chatSettings[chatID]
 	if !exists {
-		// If settings don't exist, they should be created in handleUpdate before this
 		log.Printf("[ERROR][CmdHandler] Chat %d: Settings not found for command /%s", chatID, command)
 		b.settingsMutex.RUnlock()
 		return
 	}
-	lastMenuMsgID := settings.LastMenuMessageID
 	lastSettingsMsgID := settings.LastSettingsMessageID
 	b.settingsMutex.RUnlock()
-
-	// Delete the command message itself to keep the chat clean
-	b.deleteMessageSilent(chatID, message.MessageID)
 
 	// Check if the user is an admin for admin-only commands
 	isUserAdmin := b.isAdmin(message.From)
 
 	switch command {
-	case "start":
-		// Usually handled by ensureChatInitializedAndWelcome
-		// Send main menu anyway
-		b.sendMainMenu(chatID, lastMenuMsgID)
 	case "status":
 		// Отправка startup message вручную
 		log.Printf("[CMD] Пользователь %s (%d) запросил статус бота в чате %d", username, userID, chatID)
 		b.sendStartupMessage(chatID)
-	case "menu":
-		b.sendMainMenu(chatID, lastMenuMsgID)
 	case "settings":
 		b.sendSettingsKeyboard(chatID, lastSettingsMsgID)
 	case "summary":

@@ -192,6 +192,9 @@ func (m *MockStorage) UpdateVoiceTranscriptionEnabled(chatID int64, enabled bool
 // UpdateSrachAnalysisEnabled обновляет настройку.
 func (m *MockStorage) UpdateSrachAnalysisEnabled(chatID int64, enabled bool) error { return nil }
 
+// UpdatePhotoAnalysisEnabled обновляет настройку.
+func (m *MockStorage) UpdatePhotoAnalysisEnabled(chatID int64, enabled bool) error { return nil }
+
 // SearchRelevantMessages — заглушка.
 func (m *MockStorage) SearchRelevantMessages(chatID int64, queryText string, k int) ([]*tgbotapi.Message, error) {
 	return []*tgbotapi.Message{}, nil

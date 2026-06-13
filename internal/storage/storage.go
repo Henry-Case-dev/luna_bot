@@ -397,6 +397,7 @@ type ChatHistoryStorage interface {
 	UpdateDirectLimitDuration(chatID int64, duration time.Duration) error
 	UpdateVoiceTranscriptionEnabled(chatID int64, enabled bool) error
 	UpdateSrachAnalysisEnabled(chatID int64, enabled bool) error
+	UpdatePhotoAnalysisEnabled(chatID int64, enabled bool) error
 
 	// === Методы для работы с казуальной памятью ===
 	GetCausalMemory(chatID int64) (*CausalMemory, error)

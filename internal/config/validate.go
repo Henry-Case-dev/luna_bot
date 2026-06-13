@@ -60,8 +60,10 @@ func ValidateConfig(cfg *Config) error {
 		if cfg.LongTermMemoryEnabled && cfg.GeminiAPIKey == "" {
 			return fmt.Errorf("LLM_PROVIDER='openrouter' и LONG_TERM_MEMORY_ENABLED=true, но GEMINI_API_KEY не установлен (нужен для эмбеддингов)")
 		}
+	case "local", "anthropic", "openai", "chatgpt":
+		// Локальные и альтернативные провайдеры — валидация через V2 YAML, здесь пропускаем
 	default:
-		return fmt.Errorf("неизвестный LLM_PROVIDER: '%s'. Допустимые значения: 'gemini', 'deepseek', 'openrouter'", cfg.LLMProvider)
+		return fmt.Errorf("неизвестный LLM_PROVIDER: '%s'. Допустимые значения: 'gemini', 'deepseek', 'openrouter', 'local', 'anthropic', 'openai'", cfg.LLMProvider)
 	}
 
 	// Валидация интервалов

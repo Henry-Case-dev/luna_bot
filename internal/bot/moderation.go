@@ -350,7 +350,8 @@ func (ms *ModerationService) processMessageBatch(chatID int64, messages []*tgbot
 
 	// Используем новый унифицированный форматтер для контекста LLM
 	formatter := NewUnifiedMessageFormatter(ms.bot.storage, ms.bot.config.TimeZone)
-	contextForLLM := formatter.FormatMessages(chatID, messages)
+	formatter.SetDisableUserProfiles(ms.bot.config.DisableUserProfiles)
+	contextForLLM := formatter.FormatMessagesXML(chatID, messages)
 
 	log.Printf("[Moderation] Chat %d: Использован унифицированный форматтер для %d сообщений", chatID, len(messages))
 

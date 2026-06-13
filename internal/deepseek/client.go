@@ -267,6 +267,10 @@ func (c *Client) GenerateResponseByType(responseType llm.ResponseType, systemPro
 	return c.GenerateArbitraryResponse(systemPrompt, contextText, temperature)
 }
 
+func (c *Client) GenerateChatResponse(responseType llm.ResponseType, messages []llm.ChatMessage, temperature float32) (string, error) {
+	return c.GenerateArbitraryResponse(llm.ExtractSystemContent(messages), llm.FlattenChatMessages(messages), temperature)
+}
+
 // GenerateImageWithEdit реализация для интерфейса, но DeepSeek не поддерживает генерацию изображений
 func (c *Client) GenerateImageWithEdit(ctx context.Context, baseImageData []byte, editPrompt string) ([]byte, error) {
 	if c.debug {

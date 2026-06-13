@@ -71,11 +71,14 @@ type ChatCompletionMessage struct {
 }
 
 type ChatCompletionRequest struct {
-	Model       string                  `json:"model"`
-	Messages    []ChatCompletionMessage `json:"messages"`
-	Temperature *float64                `json:"temperature,omitempty"`
-	MaxTokens   *int                    `json:"max_tokens,omitempty"`
-	TopP        *float64                `json:"top_p,omitempty"`
+	Model             string                  `json:"model"`
+	Messages          []ChatCompletionMessage `json:"messages"`
+	Temperature       *float64                `json:"temperature,omitempty"`
+	MaxTokens         *int                    `json:"max_tokens,omitempty"`
+	TopP              *float64                `json:"top_p,omitempty"`
+	RepetitionPenalty *float64                `json:"repetition_penalty,omitempty"`
+	PresencePenalty   *float64                `json:"presence_penalty,omitempty"`
+	FrequencyPenalty  *float64                `json:"frequency_penalty,omitempty"`
 	// Stream      bool                    `json:"stream,omitempty"` // Пока не используем стриминг
 	// Stop        []string                `json:"stop,omitempty"`
 	// Seed        *int                    `json:"seed,omitempty"`
@@ -381,6 +384,10 @@ func (c *Client) GenerateResponseByType(responseType llm.ResponseType, systemPro
 	// Для OpenRouter используем стандартный метод GenerateArbitraryResponse
 	// В будущем здесь можно добавить логику выбора модели на основе responseType
 	return c.GenerateArbitraryResponse(systemPrompt, contextText, temperature)
+}
+
+func (c *Client) GenerateChatResponse(responseType llm.ResponseType, messages []llm.ChatMessage, temperature float32) (string, error) {
+	return c.GenerateArbitraryResponse(llm.ExtractSystemContent(messages), llm.FlattenChatMessages(messages), temperature)
 }
 
 // GenerateImageWithEdit реализация для интерфейса, но OpenRouter не поддерживает генерацию изображений в текущей реализации

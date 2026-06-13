@@ -7,14 +7,25 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Henry-Case-dev/luna_bot/internal/llm"
 	"github.com/Henry-Case-dev/luna_bot/internal/storage"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
+func xmlEscape(s string) string {
+	s = strings.ReplaceAll(s, "&", "&amp;")
+	s = strings.ReplaceAll(s, "<", "&lt;")
+	s = strings.ReplaceAll(s, ">", "&gt;")
+	s = strings.ReplaceAll(s, "\"", "&quot;")
+	s = strings.ReplaceAll(s, "'", "&apos;")
+	return s
+}
+
 // UnifiedMessageFormatter - унифицированный форматтер сообщений для всего проекта
 type UnifiedMessageFormatter struct {
-	storage  storage.ChatHistoryStorage
-	timeZone string
+	storage             storage.ChatHistoryStorage
+	timeZone            string
+	DisableUserProfiles bool // диагностический флаг: если true, профили не загружаются
 }
 
 // NewUnifiedMessageFormatter создает новый экземпляр унифицированного форматтера
@@ -23,6 +34,11 @@ func NewUnifiedMessageFormatter(storage storage.ChatHistoryStorage, timeZone str
 		storage:  storage,
 		timeZone: timeZone,
 	}
+}
+
+// SetDisableUserProfiles устанавливает флаг отключения загрузки профилей пользователей
+func (f *UnifiedMessageFormatter) SetDisableUserProfiles(v bool) {
+	f.DisableUserProfiles = v
 }
 
 // FormatMessages - основная функция форматирования истории сообщений
@@ -38,9 +54,11 @@ func (f *UnifiedMessageFormatter) FormatMessages(chatID int64, messages []*tgbot
 	// Получаем временную зону
 	loc := f.getTimeLocation()
 
+	seenProfiles := make(map[int64]bool)
+
 	var formattedMessages []string
 	for _, msg := range messages {
-		formatted := f.formatSingleMessage(msg, profileMap, loc)
+		formatted := f.formatSingleMessage(msg, profileMap, loc, seenProfiles)
 		if formatted != "" {
 			formattedMessages = append(formattedMessages, formatted)
 		}
@@ -50,7 +68,7 @@ func (f *UnifiedMessageFormatter) FormatMessages(chatID int64, messages []*tgbot
 }
 
 // formatSingleMessage форматирует одно сообщение в унифицированном формате
-func (f *UnifiedMessageFormatter) formatSingleMessage(msg *tgbotapi.Message, profileMap map[int64]*storage.UserProfile, loc *time.Location) string {
+func (f *UnifiedMessageFormatter) formatSingleMessage(msg *tgbotapi.Message, profileMap map[int64]*storage.UserProfile, loc *time.Location, seenProfiles map[int64]bool) string {
 	if msg == nil || msg.From == nil {
 		return ""
 	}
@@ -63,11 +81,14 @@ func (f *UnifiedMessageFormatter) formatSingleMessage(msg *tgbotapi.Message, pro
 	builder.WriteString(fmt.Sprintf("[MSG_ID:%d]\n", msg.MessageID))
 
 	// Тег пользователя [U123:Иван] - совместимость с существующими промптами
-	userTag := f.generateUserTag(userID, msg.From, profile)
-	builder.WriteString(fmt.Sprintf("[%s]\n", userTag))
-
-	// Данные пользователя из профиля
-	f.appendUserInfo(&builder, msg.From, profile)
+	if seenProfiles[userID] {
+		f.appendShortUserTag(&builder, userID, msg.From, profile)
+	} else {
+		userTag := f.generateUserTag(userID, msg.From, profile)
+		builder.WriteString(fmt.Sprintf("[%s]\n", userTag))
+		f.appendUserInfo(&builder, msg.From, profile)
+		seenProfiles[userID] = true
+	}
 
 	// Временные данные
 	f.appendTimeInfo(&builder, msg, loc)
@@ -104,6 +125,12 @@ func (f *UnifiedMessageFormatter) generateUserTag(userID int64, from *tgbotapi.U
 	return fmt.Sprintf("U%d:%s", userID, displayName)
 }
 
+// appendShortUserTag добавляет только короткий тег пользователя (без полной информации профиля)
+func (f *UnifiedMessageFormatter) appendShortUserTag(builder *strings.Builder, userID int64, from *tgbotapi.User, profile *storage.UserProfile) {
+	tag := f.generateUserTag(userID, from, profile)
+	builder.WriteString(fmt.Sprintf("[%s]\n", tag))
+}
+
 // appendUserInfo добавляет информацию о пользователе
 func (f *UnifiedMessageFormatter) appendUserInfo(builder *strings.Builder, from *tgbotapi.User, profile *storage.UserProfile) {
 	// username
@@ -127,7 +154,12 @@ func (f *UnifiedMessageFormatter) appendUserInfo(builder *strings.Builder, from 
 
 	// bio
 	if profile != nil && profile.Bio != "" {
-		builder.WriteString(fmt.Sprintf("bio: %s\n", profile.Bio))
+		bio := profile.Bio
+		runes := []rune(bio)
+		if len(runes) > 300 {
+			bio = string(runes[:300]) + "…"
+		}
+		builder.WriteString(fmt.Sprintf("bio: %s\n", bio))
 	}
 }
 
@@ -220,6 +252,10 @@ func (f *UnifiedMessageFormatter) getForwardFromName(from *tgbotapi.User) string
 
 // batchLoadProfiles загружает профили пользователей пакетом
 func (f *UnifiedMessageFormatter) batchLoadProfiles(chatID int64, messages []*tgbotapi.Message) map[int64]*storage.UserProfile {
+	if f.DisableUserProfiles {
+		return make(map[int64]*storage.UserProfile)
+	}
+
 	// Собираем уникальные ID пользователей
 	userIDs := make(map[int64]bool)
 	for _, msg := range messages {
@@ -293,4 +329,246 @@ func (f *UnifiedMessageFormatter) FormatRecentMessages(chatID int64, limit int) 
 	}
 
 	return f.FormatMessages(chatID, messages)
+}
+
+// FormatChatMessages converts tgbotapi messages into a ChatML message array.
+// Bot messages map to role "assistant", all other users map to role "user".
+// Content is prefixed with author display name for user messages (e.g. "[Иван]: привет").
+func (f *UnifiedMessageFormatter) FormatChatMessages(chatID int64, messages []*tgbotapi.Message) []llm.ChatMessage {
+	if len(messages) == 0 {
+		return nil
+	}
+
+	profileMap := f.batchLoadProfiles(chatID, messages)
+
+	chatMessages := make([]llm.ChatMessage, 0, len(messages))
+	for _, msg := range messages {
+		if msg == nil {
+			continue
+		}
+
+		content := msg.Text
+		if content == "" {
+			content = msg.Caption
+		}
+		if content == "" {
+			continue
+		}
+
+		role := "user"
+		if msg.From != nil && msg.From.IsBot {
+			role = "assistant"
+		}
+
+		if role == "user" && msg.From != nil {
+			displayName := f.getDisplayName(int64(msg.From.ID), msg.From, profileMap)
+			content = "[" + displayName + "]: " + content
+		}
+
+		chatMessages = append(chatMessages, llm.ChatMessage{
+			Role:    role,
+			Content: content,
+		})
+	}
+
+	return chatMessages
+}
+
+// getDisplayName возвращает чистое имя пользователя (без markdown, без спецсимволов).
+func (f *UnifiedMessageFormatter) getDisplayName(userID int64, from *tgbotapi.User, profileMap map[int64]*storage.UserProfile) string {
+	profile := profileMap[userID]
+	if profile != nil && profile.Alias != "" {
+		return profile.Alias
+	}
+	if profile != nil && profile.RealName != "" {
+		return profile.RealName
+	}
+	if from.FirstName != "" {
+		name := from.FirstName
+		if from.LastName != "" {
+			name += " " + from.LastName
+		}
+		return name
+	}
+	if from.UserName != "" {
+		return from.UserName
+	}
+	return fmt.Sprintf("User_%d", userID)
+}
+
+// FormatSortedChatMessages converts and sorts messages by time into ChatML format.
+func (f *UnifiedMessageFormatter) FormatSortedChatMessages(chatID int64, messages []*tgbotapi.Message) []llm.ChatMessage {
+	if len(messages) == 0 {
+		return nil
+	}
+
+	sorted := make([]*tgbotapi.Message, len(messages))
+	copy(sorted, messages)
+	sort.Slice(sorted, func(i, j int) bool {
+		return sorted[i].Date < sorted[j].Date
+	})
+
+	return f.FormatChatMessages(chatID, sorted)
+}
+
+// FormatRecentChatMessages fetches the last N messages from storage and returns them as ChatML.
+func (f *UnifiedMessageFormatter) FormatRecentChatMessages(chatID int64, limit int) []llm.ChatMessage {
+	messages, err := f.storage.GetMessages(chatID, limit)
+	if err != nil {
+		log.Printf("Ошибка получения последних сообщений для ChatML: %v", err)
+		return nil
+	}
+
+	return f.FormatChatMessages(chatID, messages)
+}
+
+// FormatMessagesXML форматирует историю сообщений в структурированный XML.
+func (f *UnifiedMessageFormatter) FormatMessagesXML(chatID int64, messages []*tgbotapi.Message) string {
+	if len(messages) == 0 {
+		return ""
+	}
+
+	profileMap := f.batchLoadProfiles(chatID, messages)
+	loc := f.getTimeLocation()
+	seenProfiles := make(map[int64]bool)
+
+	var sb strings.Builder
+	sb.WriteString("<MESSAGE_HISTORY>\n")
+
+	for _, msg := range messages {
+		formatted := f.formatXMLMsg(msg, profileMap, loc, seenProfiles)
+		if formatted != "" {
+			sb.WriteString(formatted)
+		}
+	}
+
+	sb.WriteString("</MESSAGE_HISTORY>")
+
+	return sb.String()
+}
+
+func (f *UnifiedMessageFormatter) formatXMLMsg(msg *tgbotapi.Message, profileMap map[int64]*storage.UserProfile, loc *time.Location, seenProfiles map[int64]bool) string {
+	if msg == nil {
+		return ""
+	}
+
+	msgTime := time.Unix(int64(msg.Date), 0).In(loc)
+	dateStr := msgTime.Format("15:04 02.01")
+	dayStr := msgTime.Format("Mon")
+
+	role := "user"
+	isAssistant := false
+	if msg.From != nil && msg.From.IsBot {
+		role = "assistant"
+		isAssistant = true
+	}
+	if msg.From == nil && msg.SenderChat != nil {
+		role = "user"
+	}
+
+	messageText := msg.Text
+	if messageText == "" {
+		messageText = msg.Caption
+	}
+	if messageText == "" && !isAssistant {
+		return ""
+	}
+
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("<MSG ID=\"%d\" DATE=\"%s\" DAY=\"%s\" ROLE=\"%s\">\n", msg.MessageID, dateStr, dayStr, role))
+
+	if isAssistant {
+		sb.WriteString("  <ASSISTANT>\n")
+		sb.WriteString("    <ALIAS>Luna</ALIAS>\n")
+		sb.WriteString("  </ASSISTANT>\n")
+	} else if msg.From != nil {
+		userID := int64(msg.From.ID)
+		profile := profileMap[userID]
+		fullProfile := !seenProfiles[userID]
+		seenProfiles[userID] = true
+		sb.WriteString(f.formatXMLUserBlock(userID, msg.From, profile, fullProfile))
+	} else if msg.SenderChat != nil {
+		chatID := int64(msg.SenderChat.ID)
+		fullProfile := !seenProfiles[chatID]
+		seenProfiles[chatID] = true
+		sb.WriteString(f.formatXMLSenderChatBlock(msg.SenderChat, fullProfile))
+	}
+
+	if messageText != "" {
+		sb.WriteString(fmt.Sprintf("  <TEXT>%s</TEXT>\n", xmlEscape(messageText)))
+	}
+
+	sb.WriteString("</MSG>\n")
+	return sb.String()
+}
+
+func (f *UnifiedMessageFormatter) formatXMLUserBlock(userID int64, from *tgbotapi.User, profile *storage.UserProfile, fullProfile bool) string {
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("  <USER ID=\"%d\">\n", userID))
+
+	if fullProfile {
+		username := ""
+		if profile != nil && profile.Username != "" {
+			username = "@" + profile.Username
+		} else if from.UserName != "" {
+			username = "@" + from.UserName
+		}
+		if username != "" {
+			sb.WriteString(fmt.Sprintf("    <USERNAME>%s</USERNAME>\n", xmlEscape(username)))
+		}
+
+		alias := ""
+		if profile != nil && profile.Alias != "" {
+			alias = profile.Alias
+		} else if from.FirstName != "" {
+			alias = from.FirstName
+		} else if from.UserName != "" {
+			alias = from.UserName
+		}
+		if alias != "" {
+			sb.WriteString(fmt.Sprintf("    <ALIAS>%s</ALIAS>\n", xmlEscape(alias)))
+		}
+
+		if profile != nil && profile.RealName != "" {
+			sb.WriteString(fmt.Sprintf("    <REAL_NAME>%s</REAL_NAME>\n", xmlEscape(profile.RealName)))
+		}
+
+		if profile != nil && profile.Bio != "" {
+			bio := profile.Bio
+			runes := []rune(bio)
+			if len(runes) > 300 {
+				bio = string(runes[:300]) + "…"
+			}
+			sb.WriteString(fmt.Sprintf("    <BIO>%s</BIO>\n", xmlEscape(bio)))
+		}
+	} else {
+		alias := ""
+		if profile != nil && profile.Alias != "" {
+			alias = profile.Alias
+		} else if from.FirstName != "" {
+			alias = from.FirstName
+		} else if from.UserName != "" {
+			alias = from.UserName
+		}
+		if alias != "" {
+			sb.WriteString(fmt.Sprintf("    <ALIAS>%s</ALIAS>\n", xmlEscape(alias)))
+		}
+	}
+
+	sb.WriteString("  </USER>\n")
+	return sb.String()
+}
+
+func (f *UnifiedMessageFormatter) formatXMLSenderChatBlock(senderChat *tgbotapi.Chat, fullProfile bool) string {
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("  <USER ID=\"%d\">\n", senderChat.ID))
+
+	title := senderChat.Title
+	if title == "" {
+		title = fmt.Sprintf("Chat_%d", senderChat.ID)
+	}
+	sb.WriteString(fmt.Sprintf("    <ALIAS>%s</ALIAS>\n", xmlEscape(title)))
+
+	sb.WriteString("  </USER>\n")
+	return sb.String()
 }

@@ -110,6 +110,7 @@ func (m *memStore) UpdateDirectLimitCount(chatID int64, count int) error        
 func (m *memStore) UpdateDirectLimitDuration(chatID int64, duration time.Duration) error { return nil }
 func (m *memStore) UpdateVoiceTranscriptionEnabled(chatID int64, enabled bool) error     { return nil }
 func (m *memStore) UpdateSrachAnalysisEnabled(chatID int64, enabled bool) error          { return nil }
+func (m *memStore) UpdatePhotoAnalysisEnabled(chatID int64, enabled bool) error          { return nil }
 func (m *memStore) GetCausalMemory(chatID int64) (*storage.CausalMemory, error)          { return nil, nil }
 func (m *memStore) SaveCausalMemory(memory *storage.CausalMemory) error                  { return nil }
 func (m *memStore) AddCausalEntry(entry *storage.CausalMemoryEntry) error                { return nil }

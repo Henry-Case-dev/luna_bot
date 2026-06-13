@@ -105,7 +105,7 @@ func formatMessageChain(
 		indent := strings.Repeat("  ", i)
 
 		// Форматируем одно сообщение через унифицированный форматтер
-		formatted := formatter.FormatMessages(chatID, []*tgbotapi.Message{msg})
+		formatted := formatter.FormatMessagesXML(chatID, []*tgbotapi.Message{msg})
 		// Добавляем отступы к каждой строке сообщения
 		formattedLines := strings.Split(formatted, "\n")
 		for _, line := range formattedLines {

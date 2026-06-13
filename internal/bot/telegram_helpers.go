@@ -15,6 +15,7 @@ import (
 
 // sendReply отправляет простое текстовое сообщение в ответ.
 func (b *Bot) sendReply(chatID int64, text string) {
+	text = SanitizeThinkTags(text)
 	msg := tgbotapi.NewMessage(chatID, text)
 	sentMsg, err := b.api.Send(msg)
 	if err != nil {
@@ -61,6 +62,7 @@ func (b *Bot) getAssociativeContext(chatID int64, keys []string, limit int) stri
 
 // sendReplyTo отправляет текстовое сообщение в ответ на конкретное сообщение.
 func (b *Bot) sendReplyTo(chatID int64, messageID int, text string) {
+	text = SanitizeThinkTags(text)
 	msg := tgbotapi.NewMessage(chatID, text)
 	msg.ReplyToMessageID = messageID
 	sentMsg, err := b.api.Send(msg)
@@ -155,6 +157,7 @@ func (b *Bot) deleteMessageSilent(chatID int64, messageID int) bool {
 // sendAndDeleteAfter отправляет сообщение и удаляет его через указанное время.
 // ВНИМАНИЕ: Сообщение сохраняется в базу данных.
 func (b *Bot) sendAndDeleteAfter(chatID int64, text string, delay time.Duration) {
+	text = SanitizeThinkTags(text)
 	msg := tgbotapi.NewMessage(chatID, text)
 	sentMsg, err := b.api.Send(msg)
 	if err != nil {
@@ -231,6 +234,7 @@ func (b *Bot) answerCallback(callbackID string, text string) {
 // sendReplyMarkdown отправляет текстовое сообщение в указанный чат с поддержкой Markdown.
 // Логирует ошибки.
 func (b *Bot) sendReplyMarkdown(chatID int64, text string) {
+	text = SanitizeThinkTags(text)
 	msg := tgbotapi.NewMessage(chatID, text)
 	msg.ParseMode = tgbotapi.ModeMarkdown
 	sentMsg, err := b.api.Send(msg)
@@ -356,6 +360,7 @@ func (b *Bot) checkBotDeletePermissions(chatID int64) bool {
 
 // sendAutoDeleteMessage отправляет сообщение и удаляет его через указанную задержку
 func (b *Bot) sendAutoDeleteMessage(chatID int64, text string, delay time.Duration) {
+	text = SanitizeThinkTags(text)
 	msg := tgbotapi.NewMessage(chatID, text)
 	sentMsg, err := b.api.Send(msg)
 	if err != nil {
@@ -391,6 +396,7 @@ func (b *Bot) sendAutoDeleteMessage(chatID int64, text string, delay time.Durati
 // sendSystemMessage отправляет системное сообщение (приветствие, инфо) которое НЕ сохраняется в БД
 // Это предотвращает попадание технических сообщений в контекст бота
 func (b *Bot) sendSystemMessage(chatID int64, text string) {
+	text = SanitizeThinkTags(text)
 	msg := tgbotapi.NewMessage(chatID, text)
 	sentMsg, err := b.api.Send(msg)
 	if err != nil {
@@ -514,32 +520,6 @@ func (b *Bot) sendReplyWithAntiRepetition(chatID int64, text string, userID int6
 		}
 	}
 
-	// Постобработка сообщения через MessagePostProcessor
-	if b.messagePostProcessor != nil {
-		// Определяем тип сообщения на основе responseType
-		var messageType MessageType
-		switch responseType {
-		case "direct":
-			messageType = MessageTypeDirect
-		case "direct_serious":
-			messageType = MessageTypeDirectSerious
-		case "free_will":
-			messageType = MessageTypeFreeWill
-		case "voice":
-			messageType = MessageTypeVoice
-		default:
-			messageType = MessageTypeDefault
-		}
-
-		processedText, err := b.messagePostProcessor.ProcessMessage(text, messageType, chatID)
-		if err != nil {
-			log.Printf("[MessagePostProcessor] Ошибка постобработки для чата %d: %v", chatID, err)
-			// Продолжаем с оригинальным текстом при ошибке
-		} else {
-			text = processedText
-		}
-	}
-
 	// Отправляем сообщение (оригинальное или переработанное)
 	b.sendReply(chatID, text)
 
@@ -577,32 +557,6 @@ func (b *Bot) sendReplyToWithAntiRepetition(chatID int64, messageID int, text st
 		}
 	}
 
-	// Постобработка сообщения через MessagePostProcessor
-	if b.messagePostProcessor != nil {
-		// Определяем тип сообщения на основе responseType
-		var messageType MessageType
-		switch responseType {
-		case "direct":
-			messageType = MessageTypeDirect
-		case "direct_serious":
-			messageType = MessageTypeDirectSerious
-		case "free_will":
-			messageType = MessageTypeFreeWill
-		case "voice":
-			messageType = MessageTypeVoice
-		default:
-			messageType = MessageTypeDefault
-		}
-
-		processedText, err := b.messagePostProcessor.ProcessMessage(text, messageType, chatID)
-		if err != nil {
-			log.Printf("[MessagePostProcessor] Ошибка постобработки для чата %d: %v", chatID, err)
-			// Продолжаем с оригинальным текстом при ошибке
-		} else {
-			text = processedText
-		}
-	}
-
 	// Отправляем сообщение (оригинальное или переработанное)
 	b.sendReplyTo(chatID, messageID, text)
 
@@ -614,6 +568,7 @@ func (b *Bot) sendReplyToWithAntiRepetition(chatID int64, messageID int, text st
 
 // sendSummaryReply отправляет суточное саммари с пометкой флагом summary=true
 func (b *Bot) sendSummaryReply(chatID int64, text string) {
+	text = SanitizeThinkTags(text)
 	msg := tgbotapi.NewMessage(chatID, text)
 	msg.ParseMode = tgbotapi.ModeMarkdown
 
@@ -655,6 +610,7 @@ func (b *Bot) sendSummaryReply(chatID int64, text string) {
 
 // sendWeeklySummaryReply отправляет еженедельное саммари с пометкой флагом weekly_summary=true
 func (b *Bot) sendWeeklySummaryReply(chatID int64, text string) {
+	text = SanitizeThinkTags(text)
 	msg := tgbotapi.NewMessage(chatID, text)
 	msg.ParseMode = tgbotapi.ModeMarkdown
 
@@ -684,483 +640,290 @@ func (b *Bot) sendWeeklySummaryReply(chatID int64, text string) {
 	}
 }
 
-// SendStartupMessage отправляет информацию о состоянии бота в чат.
-// Сообщение автоматически удаляется через минуту и НЕ сохраняется в истории.
-func (b *Bot) sendStartupMessage(chatID int64) {
-	log.Printf("[StartupMessage][%d] === НАЧАЛО ОТПРАВКИ STARTUP MESSAGE ===", chatID)
+// sendStatusMessage отправляет информативное сообщение о состоянии всех систем бота.
+// Вызывается по команде /status или через меню Настройки → Статус.
+// Сообщение автоматически удаляется через 1 минуту и НЕ сохраняется в истории.
+func (b *Bot) sendStatusMessage(chatID int64) {
+	log.Printf("[StatusMessage][%d] Запрос статуса систем", chatID)
 
-	// Дополнительная проверка критических компонентов
-	if b.api == nil {
-		log.Printf("[StartupMessage][%d] ❌ КРИТИЧЕСКАЯ ОШИБКА: b.api = nil", chatID)
-		return
-	}
-	if b.config == nil {
-		log.Printf("[StartupMessage][%d] ❌ КРИТИЧЕСКАЯ ОШИБКА: b.config = nil", chatID)
-		return
-	}
-	if b.storage == nil {
-		log.Printf("[StartupMessage][%d] ❌ КРИТИЧЕСКАЯ ОШИБКА: b.storage = nil", chatID)
+	if b.api == nil || b.config == nil || b.storage == nil {
+		log.Printf("[StatusMessage][%d] ❌ Критические компоненты не инициализированы", chatID)
 		return
 	}
 
-	log.Printf("[StartupMessage][%d] Критические компоненты проверены - все в порядке", chatID)
-
-	// Собираем информацию о статусе всех сервисов
 	var sb strings.Builder
-	sb.WriteString("🚀 Запуск бота Luna\n\n")
+	sb.WriteString("📊 Статус систем Luna\n\n")
 
-	// Информация о хранилище
-	sb.WriteString("💾 Хранилище данных:\n")
-	sb.WriteString(fmt.Sprintf("📦 Тип: %s\n", b.config.StorageType))
+	// ── Аптайм ──
+	if !b.startTime.IsZero() {
+		uptime := time.Since(b.startTime).Round(time.Second)
+		sb.WriteString(fmt.Sprintf("⏱ Аптайм: %s\n\n", formatDuration(uptime)))
+	}
 
-	// Получаем статус хранилища и проверяем реальную работоспособность
-	storageStatus := b.storage.GetStatus(chatID)
-	storageWorking := true
-	messageCount := 0
+	// ── Модели и их healthcheck ──
+	sb.WriteString("🤖 Модели:\n")
 
-	// Проверяем реальную работоспособность хранилища
-	if mongoStore, ok := b.storage.(*storage.PostgresStorage); ok {
-		if count, err := mongoStore.GetTotalMessagesCount(chatID); err == nil {
-			messageCount = int(count)
+	// Текстовая LLM (основная, для free_will и итоговых ответов)
+	textProvider := b.getProviderDisplayName()
+	textModel := b.getCurrentModelName()
+	llmHealth := "✅"
+	if b.llm == nil {
+		llmHealth = "❌"
+	}
+	sb.WriteString(fmt.Sprintf("  💬 Текст (LLM): %s / %s %s\n", textProvider, textModel, llmHealth))
+
+	// STT / аудио транскрибация
+	sttModel := b.config.AudioTranscriptionModel
+	if sttModel == "" {
+		// Используем ту же модель что и для текста, если провайдер local
+		sttModel = b.getCurrentModelName()
+	}
+	sttHealth := "✅"
+	if b.embeddingClient == nil {
+		sttHealth = "❌"
+	}
+	sb.WriteString(fmt.Sprintf("  🎤 Распознавание речи (STT): %s %s\n", sttModel, sttHealth))
+
+	// TTS
+	ttsModel := b.config.ElevenLabsModel
+	ttsProvider := "ElevenLabs"
+	ttsHealth := "✅"
+	if b.voiceMessageService == nil || b.config.ElevenLabsAPIKey == "" {
+		ttsHealth = "⚠️"
+		ttsProvider = "Gemini TTS (fallback)"
+		ttsModel = "gemini-2.5-flash-preview-tts"
+	}
+	sb.WriteString(fmt.Sprintf("  🗣️ Озвучка (TTS): %s / %s %s\n", ttsProvider, ttsModel, ttsHealth))
+
+	// Image generation
+	imgModel := b.config.ImageGenerationModel
+	if imgModel == "" {
+		imgModel = "gemini-2.5-flash-image-preview"
+	}
+	imgHealth := "✅"
+	if b.imageGenerationService == nil || !b.imageGenerationService.IsEnabled() {
+		imgHealth = "❌ откл."
+	}
+	sb.WriteString(fmt.Sprintf("  🖼️ Генерация изображений: %s %s\n", imgModel, imgHealth))
+
+	// Embedding model
+	embModel := b.config.GeminiEmbeddingModelName
+	if embModel == "" {
+		embModel = "embedding-001"
+	}
+	sb.WriteString(fmt.Sprintf("  🧬 Эмбеддинги: %s\n\n", embModel))
+
+	// ── Хранилище ──
+	sb.WriteString("💾 Хранилище:\n")
+	sb.WriteString(fmt.Sprintf("  Тип: %s\n", b.config.StorageType))
+	msgCount := 0
+	storageOK := true
+	if pgStore, ok := b.storage.(*storage.PostgresStorage); ok {
+		if count, err := pgStore.GetTotalMessagesCount(chatID); err == nil {
+			msgCount = int(count)
 		} else {
-			storageWorking = false
-			storageStatus = "❌ ошибка подключения"
+			storageOK = false
 		}
 	} else if fileStore, ok := b.storage.(*storage.FileStorage); ok {
 		if messages, err := fileStore.GetMessages(chatID, 100000); err == nil {
-			messageCount = len(messages)
+			msgCount = len(messages)
 		} else {
-			storageWorking = false
-			storageStatus = "❌ ошибка чтения файла"
-		}
-	} else {
-		// Проверяем общую работоспособность через GetMessages
-		if _, err := b.storage.GetMessages(chatID, 1); err != nil {
-			storageWorking = false
-			storageStatus = "❌ ошибка доступа"
+			storageOK = false
 		}
 	}
-
-	if storageWorking {
-		sb.WriteString(fmt.Sprintf("📊 Статус: ✅ %s\n", storageStatus))
-		sb.WriteString(fmt.Sprintf("📨 Сообщений в базе: %d\n", messageCount))
+	if storageOK {
+		sb.WriteString(fmt.Sprintf("  Сообщений в БД: %d ✅\n\n", msgCount))
 	} else {
-		sb.WriteString(fmt.Sprintf("📊 Статус: %s\n", storageStatus))
+		sb.WriteString(fmt.Sprintf("  Сообщений в БД: ошибка доступа ❌\n\n"))
 	}
 
-	sb.WriteString("\n🔧 Сервисы и модули:\n")
+	// ── Сервисы и модули ──
+	sb.WriteString("🔧 Сервисы:\n")
 
-	// Модерация - проверяем ФАКТИЧЕСКОЕ состояние работы сервиса
-	var moderationStatus string
+	// Модерация
+	modStatus := "❌ отключена"
 	if b.moderation != nil {
 		b.moderation.mutex.RLock()
 		if isActive, exists := b.moderation.activeChats[chatID]; exists && isActive {
-			moderationStatus = "✅ включена"
-		} else if exists {
-			// Модерация неактивна в чате - проверяем причину
-			if !b.config.ModEnabled {
-				moderationStatus = "❌ отключена (MOD_ENABLED=false)"
-			} else {
-				moderationStatus = "⚠️ неактивна (нет прав администратора)"
-			}
+			modStatus = "✅ активна"
+		} else if !b.config.ModEnabled {
+			modStatus = "❌ отключена в конфиге"
 		} else {
-			// Чат не инициализирован - проверяем причину
-			if !b.config.ModEnabled {
-				moderationStatus = "❌ отключена (MOD_ENABLED=false)"
-			} else {
-				moderationStatus = "⏳ инициализируется"
-			}
+			modStatus = "⚠️ нет прав админа"
 		}
 		b.moderation.mutex.RUnlock()
-	} else {
-		moderationStatus = "❌ сервис не инициализирован"
 	}
-	sb.WriteString(fmt.Sprintf("🛡️ Модерация: %s\n", moderationStatus))
+	sb.WriteString(fmt.Sprintf("  🛡️ Модерация: %s\n", modStatus))
 
-	// Free Will - проверяем ФАКТИЧЕСКОЕ состояние работы сервиса
-	var freeWillStatus string
+	// Free Will
+	fwStatus := "❌ отключена"
 	if b.freeWillService != nil && b.freeWillService.IsEnabled() {
-		freeWillStatus = "✅ включена"
-	} else if b.freeWillService != nil && !b.freeWillService.IsEnabled() {
-		// Сервис инициализирован, но выключен - проверяем причину
-		if !b.config.FreeWillEnabled {
-			freeWillStatus = "❌ отключена (FREE_WILL_ENABLED=false)"
-		} else {
-			freeWillStatus = "⚠️ неактивна (сервис выключен)"
-		}
-	} else {
-		// Сервис не инициализирован - проверяем причину
-		if !b.config.FreeWillEnabled {
-			freeWillStatus = "❌ отключена (FREE_WILL_ENABLED=false)"
-		} else {
-			freeWillStatus = "❌ сервис не инициализирован"
-		}
+		fwStatus = "✅ активна"
+	} else if !b.config.FreeWillEnabled {
+		fwStatus = "❌ отключена в конфиге"
 	}
-	sb.WriteString(fmt.Sprintf("🧠 Свобода воли: %s\n", freeWillStatus))
+	sb.WriteString(fmt.Sprintf("  🧠 Свобода воли: %s\n", fwStatus))
 
-	// Постпроцессор сообщений - проверяем ФАКТИЧЕСКОЕ состояние
-	var postProcessorStatus string
-	if b.messagePostProcessor != nil && b.messagePostProcessor.IsEnabled() {
-		postProcessorStatus = "✅ включен"
-	} else if b.messagePostProcessor != nil && !b.messagePostProcessor.IsEnabled() {
-		postProcessorStatus = "❌ отключен (MESSAGE_POST_PROCESSOR_ENABLED=false)"
-	} else {
-		postProcessorStatus = "❌ сервис не инициализирован"
-	}
-	sb.WriteString(fmt.Sprintf("⚙️ Постпроцессор: %s\n", postProcessorStatus))
-
-	// Анализ изображений - проверяем ФАКТИЧЕСКОЕ состояние
-	var photoAnalysisStatus string
+	// Анализ фото
+	photoStatus := "❌ отключен"
 	if b.config.PhotoAnalysisEnabled {
 		if b.embeddingClient != nil {
-			photoAnalysisStatus = "✅ включен"
+			photoStatus = "✅ включен"
 		} else {
-			photoAnalysisStatus = "❌ включен (нет клиента Gemini)"
-		}
-	} else {
-		photoAnalysisStatus = "❌ отключен (PHOTO_ANALYSIS_ENABLED=false)"
-	}
-	sb.WriteString(fmt.Sprintf("🖼️ Анализ изображений: %s\n", photoAnalysisStatus))
-
-	// Голосовые сообщения (TTS) - проверяем ФАКТИЧЕСКОЕ состояние работы
-	var ttsStatus string
-	if b.voiceMessageService != nil && b.config.ElevenLabsAPIKey != "" {
-		if b.config.VoiceMessagesEnabled {
-			ttsStatus = "✅ включены"
-		} else {
-			ttsStatus = "❌ отключены (VOICE_MESSAGES_ENABLED=false)"
-		}
-	} else if b.voiceMessageService != nil && b.config.ElevenLabsAPIKey == "" {
-		ttsStatus = "❌ отключены (нет API ключа ElevenLabs)"
-	} else if b.voiceMessageService == nil {
-		if !b.config.VoiceMessagesEnabled {
-			ttsStatus = "❌ отключены (VOICE_MESSAGES_ENABLED=false)"
-		} else {
-			ttsStatus = "❌ сервис не инициализирован"
+			photoStatus = "❌ нет клиента"
 		}
 	}
-	sb.WriteString(fmt.Sprintf("🗣️ Голосовые сообщения: %s\n", ttsStatus))
+	sb.WriteString(fmt.Sprintf("  🖼️ Анализ фото: %s\n", photoStatus))
 
-	// Веб-поиск - проверяем ФАКТИЧЕСКОЕ состояние работы
-	var webSearchStatus string
+	// Веб-поиск
+	webStatus := "❌ отключен"
 	if b.webSearch != nil && b.config.GoogleSearchAPIKey != "" && b.config.GoogleSearchEngineID != "" {
-		if b.config.WebSearchEnabled {
-			webSearchStatus = "✅ включен"
-		} else {
-			webSearchStatus = "❌ отключен (WEB_SEARCH_ENABLED=false)"
-		}
-	} else if b.webSearch != nil && (b.config.GoogleSearchAPIKey == "" || b.config.GoogleSearchEngineID == "") {
-		webSearchStatus = "❌ отключен (нет API ключей Google)"
-	} else if b.webSearch == nil {
-		if !b.config.WebSearchEnabled {
-			webSearchStatus = "❌ отключен (WEB_SEARCH_ENABLED=false)"
-		} else {
-			webSearchStatus = "❌ сервис не инициализирован"
-		}
-	}
-	sb.WriteString(fmt.Sprintf("🔍 Веб-поиск: %s\n", webSearchStatus))
-
-	// Отслеживание реакций - проверяем ФАКТИЧЕСКОЕ состояние работы
-	var reactionsStatus string
-	if b.reactionTracker != nil && b.reactionHandler != nil {
-		if b.config.ReactionsEnabled {
-			reactionsStatus = "✅ включено"
-		} else {
-			reactionsStatus = "❌ отключено (REACTIONS_ENABLED=false)"
-		}
+		webStatus = "✅ включен"
+	} else if !b.config.WebSearchEnabled {
+		webStatus = "❌ отключен в конфиге"
 	} else {
-		if !b.config.ReactionsEnabled {
-			reactionsStatus = "❌ отключено (REACTIONS_ENABLED=false)"
-		} else {
-			reactionsStatus = "❌ сервисы не инициализированы"
-		}
+		webStatus = "❌ нет API ключей"
 	}
-	sb.WriteString(fmt.Sprintf("😊 Реакции: %s\n", reactionsStatus))
+	sb.WriteString(fmt.Sprintf("  🔍 Веб-поиск: %s\n", webStatus))
 
-	// Долгосрочная память - проверяем ФАКТИЧЕСКОЕ состояние работы
-	var memoryStatus string
-	if mongoStore, ok := b.storage.(*storage.PostgresStorage); ok && b.embeddingClient != nil {
-		if b.config.LongTermMemoryEnabled {
-			// Проверяем доступность MongoDB для эмбеддингов
-			if _, err := mongoStore.GetMessages(chatID, 1); err == nil {
-				memoryStatus = "✅ включена"
-			} else {
-				memoryStatus = "❌ включена (ошибка MongoDB)"
-			}
-		} else {
-			memoryStatus = "❌ отключена (LONG_TERM_MEMORY_ENABLED=false)"
-		}
-	} else {
-		if !b.config.LongTermMemoryEnabled {
-			memoryStatus = "❌ отключена (LONG_TERM_MEMORY_ENABLED=false)"
-		} else if _, ok := b.storage.(*storage.PostgresStorage); !ok {
-			memoryStatus = "❌ отключена (требуется MongoDB)"
-		} else if b.embeddingClient == nil {
-			memoryStatus = "❌ отключена (нет клиента эмбеддингов)"
-		}
+	// Реакции
+	rxnStatus := "❌ отключены"
+	if b.reactionTracker != nil && b.reactionHandler != nil && b.config.ReactionsEnabled {
+		rxnStatus = "✅ включены"
 	}
-	sb.WriteString(fmt.Sprintf("💭 Долгосрочная память: %s\n", memoryStatus))
+	sb.WriteString(fmt.Sprintf("  😊 Реакции: %s\n", rxnStatus))
 
-	// Автоматическое саммари - проверяем ФАКТИЧЕСКОЕ состояние
-	var summaryStatus string
+	// Долгосрочная память
+	memStatus := "❌ отключена"
+	if b.config.LongTermMemoryEnabled && b.embeddingClient != nil {
+		memStatus = "✅ включена"
+	}
+	sb.WriteString(fmt.Sprintf("  💭 Долгосрочная память: %s\n", memStatus))
+
+	// Авто-саммари
+	sumStatus := "❌ отключено"
 	if b.config.SummaryIntervalHours > 0 {
-		summaryStatus = fmt.Sprintf("✅ включено (каждые %d ч)", b.config.SummaryIntervalHours)
-	} else {
-		summaryStatus = "❌ отключено (SUMMARY_INTERVAL_HOURS=0)"
+		sumStatus = fmt.Sprintf("✅ каждые %d ч", b.config.SummaryIntervalHours)
 	}
-	sb.WriteString(fmt.Sprintf("📝 Автосаммари: %s\n", summaryStatus))
+	sb.WriteString(fmt.Sprintf("  📝 Автосаммари: %s\n", sumStatus))
 
-	// Анализ срачей - проверяем ФАКТИЧЕСКОЕ состояние
-	var srachStatus string
+	// Анализ срачей
+	srachStatus := "❌ отключен"
 	if b.config.SrachAnalysisEnabled {
 		srachStatus = "✅ включен"
-	} else {
-		srachStatus = "❌ отключен (SRACH_ANALYSIS_ENABLED=false)"
 	}
-	sb.WriteString(fmt.Sprintf("⚔️ Анализ срачей: %s\n", srachStatus))
+	sb.WriteString(fmt.Sprintf("  ⚔️ Анализ срачей: %s\n", srachStatus))
 
-	// Система анти-повторений - проверяем ФАКТИЧЕСКОЕ состояние работы
-	var antiRepetitionStatus string
-	if b.antiRepetitionService != nil {
-		if b.config.AntiRepetitionEnabled {
-			antiRepetitionStatus = "✅ включена"
-		} else {
-			antiRepetitionStatus = "❌ отключена (ANTI_REPETITION_ENABLED=false)"
-		}
-	} else {
-		if !b.config.AntiRepetitionEnabled {
-			antiRepetitionStatus = "❌ отключена (ANTI_REPETITION_ENABLED=false)"
-		} else {
-			antiRepetitionStatus = "❌ сервис не инициализирован"
-		}
+	// Анти-повторения
+	antiStatus := "❌ отключена"
+	if b.antiRepetitionService != nil && b.config.AntiRepetitionEnabled {
+		antiStatus = "✅ включена"
 	}
-	sb.WriteString(fmt.Sprintf("🔄 Анти-повторения: %s\n", antiRepetitionStatus))
+	sb.WriteString(fmt.Sprintf("  🔄 Анти-повторения: %s\n", antiStatus))
 
-	// Каузальный анализатор (Этап 1) - проверяем ФАКТИЧЕСКОЕ состояние
-	var causalAnalyzerStatus string
-	if b.config.CausalLearningEnabled {
-		// Получаем реальную статистику из каузальной памяти
-		causalMemoryStats := make(map[int64]int)
-		totalCausalEntries := 0
-
-		// Проверяем каузальную память для текущего чата
-		if causalMemory, err := b.storage.GetCausalMemory(chatID); err == nil {
-			totalCausalEntries = causalMemory.TotalEntries
-			causalMemoryStats[chatID] = causalMemory.TotalEntries
-		}
-
-		// Проверяем интервал анализа
-		intervalHours := b.config.CausalAnalysisIntervalHours
-		if intervalHours <= 0 {
-			intervalHours = 4 // дефолтное значение
-		}
-
-		causalAnalyzerStatus = fmt.Sprintf("✅ включен (анализ каждые %d ч, записей: %d)", intervalHours, totalCausalEntries)
-	} else {
-		causalAnalyzerStatus = "❌ отключен (CAUSAL_LEARNING_ENABLED=false)"
-	}
-	sb.WriteString(fmt.Sprintf("🧠 Каузальный анализатор: %s\n", causalAnalyzerStatus))
-
-	// Эмоциональная архитектура (Этап 2) - проверяем ФАКТИЧЕСКОЕ состояние
-	var emotionalArchitectureStatus string
+	// Эмоциональная система
+	emoStatus := "❌ отключена"
 	if b.config.EmotionalLearningEnabled {
-		// Получаем реальную статистику эмоциональной памяти
-		totalEmotionalMemories := 0
-		emotionalStateExists := false
-
-		// Проверяем эмоциональную память для текущего чата
-		if emotionalMemories, err := b.storage.GetEmotionalMemories(chatID, 0, 1000); err == nil {
-			totalEmotionalMemories = len(emotionalMemories)
-		}
-
-		// Проверяем наличие эмоционального состояния
-		if emotionalState, err := b.storage.GetEmotionalState(chatID); err == nil && emotionalState != nil {
-			emotionalStateExists = true
-		}
-
-		// Проверяем интервал анализа
-		intervalHours := b.config.EmotionalAnalysisIntervalHours
-		if intervalHours <= 0 {
-			intervalHours = 2 // дефолтное значение
-		}
-
-		// Проверяем доступность промптов
-		promptsAvailable := b.config.EmotionalAnalysisPromptEnabled &&
-			b.config.EmotionalAdaptationPromptEnabled &&
-			b.config.EmotionalFeedbackPromptEnabled
-
-		if promptsAvailable {
-			emotionalArchitectureStatus = fmt.Sprintf("✅ включена (анализ каждые %d ч, воспоминаний: %d, состояние: %s)",
-				intervalHours, totalEmotionalMemories,
-				map[bool]string{true: "активно", false: "не инициализировано"}[emotionalStateExists])
-		} else {
-			emotionalArchitectureStatus = "⚠️ включена (промпты отключены)"
-		}
-	} else {
-		emotionalArchitectureStatus = "❌ отключена (EMOTIONAL_LEARNING_ENABLED=false)"
+		emoStatus = "✅ включена"
 	}
-	sb.WriteString(fmt.Sprintf("🎭 Эмоциональная архитектура: %s\n", emotionalArchitectureStatus))
+	sb.WriteString(fmt.Sprintf("  🎭 Эмоциональная система: %s\n", emoStatus))
 
-	// Облако ассоциаций (Association Cloud) — показываем реальный статус и причину
-	var assocStatus string
-	if b.config.AssociationCloudEnabled {
-		// Пытаемся получить небольшую выборку; если бэкенд не поддерживает/ошибка — отразим причину
-		var nodes []*storage.AssocNode
-		var edges []*storage.AssocEdge
-		var err error
-		if b.storage != nil {
-			nodes, edges, err = b.storage.GetAssocTopForContext(chatID, nil, 3, b.config.AssociationCloudDecayDays, []string{"topic", "emoji"})
-		}
-		if err != nil {
-			// Определим вероятную причину
-			if _, ok := b.storage.(*storage.PostgresStorage); !ok {
-				assocStatus = "⚠️ включено (бэкенд без полной поддержки)"
-			} else {
-				assocStatus = "⚠️ включено (ошибка доступа к данным)"
-			}
-		} else {
-			if len(nodes) == 0 && len(edges) == 0 {
-				assocStatus = "✅ включено (данных пока нет)"
-			} else {
-				assocStatus = fmt.Sprintf("✅ включено (узлов: %d, связей: %d)", len(nodes), len(edges))
-			}
-		}
-	} else {
-		assocStatus = "❌ отключено (ASSOCIATION_CLOUD_ENABLED=false)"
+	// Каузальное обучение
+	causalStatus := "❌ отключено"
+	if b.config.CausalLearningEnabled {
+		causalStatus = "✅ включено"
 	}
-	sb.WriteString(fmt.Sprintf("☁️ Облако ассоциаций: %s\n", assocStatus))
+	sb.WriteString(fmt.Sprintf("  🧠 Каузальное обучение: %s\n", causalStatus))
 
-	// Система убеждений (Belief Analyzer) — реальный статус
-	var beliefStatus string
+	// Система убеждений
+	beliefStatus := "❌ отключена"
 	if b.config.BeliefLearningEnabled {
-		// Попробуем получить персональность для этого чата и показать краткую сводку
-		interval := b.config.BeliefAnalysisIntervalHours
-		if interval <= 0 {
-			interval = 6
-		}
-		beliefStatus = fmt.Sprintf("✅ включена (анализ каждые %d ч)", interval)
-		if mem, err := b.storage.GetPersonalityMemory(chatID); err == nil && mem != nil && mem.BeliefSystem != nil {
-			beliefCount := len(mem.BeliefSystem.CoreBeliefs)
-			last := "нет данных"
-			if !mem.BeliefSystem.LastBeliefUpdate.IsZero() {
-				last = mem.BeliefSystem.LastBeliefUpdate.Format("2006-01-02 15:04")
-			}
-			beliefStatus = fmt.Sprintf("✅ включена (анализ каждые %d ч, убеждений: %d, обновлено: %s)", interval, beliefCount, last)
-		}
-	} else {
-		beliefStatus = "❌ отключена (BELIEF_LEARNING_ENABLED=false)"
+		beliefStatus = "✅ включена"
 	}
-	sb.WriteString(fmt.Sprintf("🧠 Система убеждений: %s\n", beliefStatus))
+	sb.WriteString(fmt.Sprintf("  💡 Система убеждений: %s\n", beliefStatus))
 
-	sb.WriteString("\n🤖 Основные параметры:\n")
+	// Облако ассоциаций
+	assocStatus := "❌ отключено"
+	if b.config.AssociationCloudEnabled {
+		assocStatus = "✅ включено"
+	}
+	sb.WriteString(fmt.Sprintf("  ☁️ Облако ассоциаций: %s\n\n", assocStatus))
 
-	// Проверяем работоспособность LLM клиента
-	llmStatus := fmt.Sprintf("🔤 LLM провайдер: %s", b.config.LLMProvider)
-	if b.llm != nil {
-		llmStatus += " ✅"
-	} else {
-		llmStatus += " ❌ (не инициализирован)"
+	// ── Админ-права ──
+	sb.WriteString("👑 Админ-права:\n")
+	if len(b.config.AdminUsernames) > 0 {
+		sb.WriteString(fmt.Sprintf("  Пользователи: %s\n", strings.Join(b.config.AdminUsernames, ", ")))
 	}
-	sb.WriteString(fmt.Sprintf("%s\n", llmStatus))
+	hasAdmin := b.config.AdminID != 0 || len(b.config.AdminUsernames) > 0
+	if b.config.AdminID != 0 {
+		sb.WriteString(fmt.Sprintf("  ID: %d\n", b.config.AdminID))
+	}
+	sb.WriteString(fmt.Sprintf("  Проверка прав: %s\n\n", map[bool]string{true: "✅ настроена", false: "⚠️ админы не заданы"}[hasAdmin]))
 
-	sb.WriteString(fmt.Sprintf("💬 Интервал ответов: %d-%d сообщений\n", b.config.MinMessages, b.config.MaxMessages))
-	sb.WriteString(fmt.Sprintf("📏 Окно контекста: %d сообщений\n", b.config.ContextWindow))
+	// ── Основные параметры ──
+	sb.WriteString("⚙️ Параметры:\n")
+	sb.WriteString(fmt.Sprintf("  Интервал ответов: %d–%d сообщений\n", b.config.MinMessages, b.config.MaxMessages))
+	sb.WriteString(fmt.Sprintf("  Окно контекста: %d сообщений\n", b.config.ContextWindow))
+	sb.WriteString(fmt.Sprintf("  Часовой пояс: %s\n", b.config.TimeZone))
+	sb.WriteString(fmt.Sprintf("  Тема дня: %02d:00\n\n", b.config.DailyTakeTime))
 
-	// Подсчитываем общее количество проблем
-	problemCount := 0
-	if !storageWorking {
-		problemCount++
-	}
-	if b.config.FreeWillEnabled && (b.freeWillService == nil || !b.freeWillService.IsEnabled()) {
-		problemCount++
-	}
-	if b.config.VoiceMessagesEnabled && (b.voiceMessageService == nil || b.config.ElevenLabsAPIKey == "") {
-		problemCount++
-	}
-	if b.config.WebSearchEnabled && (b.webSearch == nil || b.config.GoogleSearchAPIKey == "" || b.config.GoogleSearchEngineID == "") {
-		problemCount++
-	}
-	if b.config.LongTermMemoryEnabled {
-		if b.embeddingClient == nil {
-			problemCount++
-		} else if _, ok := b.storage.(*storage.PostgresStorage); !ok {
-			problemCount++
-		}
-	}
-	if b.config.ReactionsEnabled && (b.reactionTracker == nil || b.reactionHandler == nil) {
-		problemCount++
-	}
-	if b.config.AntiRepetitionEnabled && b.antiRepetitionService == nil {
-		problemCount++
-	}
-	if b.config.CausalLearningEnabled {
-		if causalMemory, err := b.storage.GetCausalMemory(chatID); err != nil || causalMemory == nil {
-			problemCount++
-		}
-	}
-	if b.config.EmotionalLearningEnabled {
-		// Проверяем доступность эмоциональных промптов
-		if !b.config.EmotionalAnalysisPromptEnabled ||
-			!b.config.EmotionalAdaptationPromptEnabled ||
-			!b.config.EmotionalFeedbackPromptEnabled {
-			problemCount++
-		}
-		// Проверяем наличие эмоционального состояния
-		if emotionalState, err := b.storage.GetEmotionalState(chatID); err != nil || emotionalState == nil {
-			problemCount++
-		}
-	}
-	if b.llm == nil {
-		problemCount++
-	}
+	// ── Итого ──
+	sb.WriteString("⏰ Сообщение удалится через 1 минуту")
 
-	// Итоговая статистика
-	if problemCount == 0 {
-		sb.WriteString("\n🎉 Все системы работают нормально!")
-	} else {
-		sb.WriteString(fmt.Sprintf("\n⚠️ Обнаружено проблем: %d", problemCount))
-	}
-
-	sb.WriteString("\n\n⏰ Сообщение автоматически удалится через 1 минуту")
-
-	// Отправляем сообщение с автоудалением
+	// Отправка
 	msg := tgbotapi.NewMessage(chatID, sb.String())
-	// Убираем parse_mode чтобы избежать ошибок парсинга Markdown с эмодзи
-	// msg.ParseMode = tgbotapi.ModeMarkdown
-
-	log.Printf("[StartupMessage][%d] Подготовлено сообщение для отправки. Длина: %d символов", chatID, len(sb.String()))
-	log.Printf("[StartupMessage][%d] Отправка startup message в чат %d...", chatID, chatID)
-
 	sentMsg, err := b.api.Send(msg)
 	if err != nil {
-		log.Printf("[StartupMessage][%d] ❌ ОШИБКА при отправке: %v", chatID, err)
+		log.Printf("[StatusMessage][%d] ❌ Ошибка отправки: %v", chatID, err)
 		if b.isUserBlockedError(err) {
-			log.Printf("[StartupMessage][%d] Пользователь %d заблокировал бота (403), пропускаю отправку стартового сообщения", chatID, chatID)
 			b.markChatAsInactive(chatID)
-			return
 		}
-		log.Printf("[StartupMessage][%d] ❌ КРИТИЧЕСКАЯ ОШИБКА отправки стартового сообщения в чат %d: %v", chatID, chatID, err)
 		return
 	}
 
-	log.Printf("[StartupMessage][%d] ✅ Сообщение успешно отправлено! MessageID: %d", chatID, sentMsg.MessageID)
+	log.Printf("[StatusMessage][%d] ✅ Отправлен (MsgID: %d), автоудаление через 1 мин", chatID, sentMsg.MessageID)
 
-	// НЕ сохраняем стартовое сообщение в БД - оно не должно попадать в историю
-
-	// Запланируем удаление сообщения через 1 минуту
+	// Автоудаление через минуту
 	time.AfterFunc(1*time.Minute, func() {
-		log.Printf("[StartupMessage][%d] Попытка удаления startup message (ID: %d)", chatID, sentMsg.MessageID)
 		if b.checkBotDeletePermissions(chatID) {
-			if b.deleteMessageSilent(chatID, sentMsg.MessageID) {
-				log.Printf("[StartupMessage][%d] ✅ Startup message удален из чата %d (ID: %d)", chatID, chatID, sentMsg.MessageID)
-			} else {
-				log.Printf("[StartupMessage][%d] ❌ Не удалось удалить startup message из чата %d (ID: %d)", chatID, chatID, sentMsg.MessageID)
-			}
-		} else {
-			log.Printf("[StartupMessage][%d] ⚠️ Нет прав на удаление startup message в чате %d", chatID, chatID)
+			b.deleteMessageSilent(chatID, sentMsg.MessageID)
 		}
 	})
+}
 
-	log.Printf("[StartupMessage][%d] ✅ Startup message отправлен в чат %d (ID: %d), автоудаление через 1 минуту", chatID, chatID, sentMsg.MessageID)
-	log.Printf("[StartupMessage][%d] === КОНЕЦ ОТПРАВКИ STARTUP MESSAGE ===", chatID)
+// sendStartupMessage — устаревшая обёртка, перенаправляет на sendStatusMessage.
+// Оставлена для обратной совместимости с /status командой.
+func (b *Bot) sendStartupMessage(chatID int64) {
+	b.sendStatusMessage(chatID)
+}
+
+// formatDuration форматирует time.Duration в читаемый вид.
+func formatDuration(d time.Duration) string {
+	d = d.Round(time.Second)
+	h := d / time.Hour
+	d -= h * time.Hour
+	m := d / time.Minute
+	d -= m * time.Minute
+	s := d / time.Second
+
+	if h > 0 {
+		return fmt.Sprintf("%d ч %d мин", h, m)
+	}
+	if m > 0 {
+		return fmt.Sprintf("%d мин %d сек", m, s)
+	}
+	return fmt.Sprintf("%d сек", s)
+}
+
+// setTypingAction отправляет статус "печатает..." в чат.
+// Используется перед LLM-вызовами для индикации генерации ответа.
+// Telegram сам отменяет действие через ~5 секунд или при отправке сообщения.
+func (b *Bot) setTypingAction(chatID int64) {
+	action := tgbotapi.NewChatAction(chatID, tgbotapi.ChatTyping)
+	if _, err := b.api.Request(action); err != nil {
+		// Тихая ошибка — typing-индикатор не критичен для работы
+		if b.config.Debug {
+			log.Printf("[DEBUG][typing] Не удалось установить статус печати для чата %d: %v", chatID, err)
+		}
+	}
 }

@@ -30,7 +30,6 @@ func MigrateConfig(old *Config) *ConfigV2 {
 	cfg.Moderation = migrateModerationConfig(old)
 	cfg.AntiRepetition = migrateAntiRepetitionConfig(old)
 	cfg.Disambiguation = migrateDisambiguationConfig(old)
-	cfg.MessagePostProcessor = migrateMessagePostProcessorConfig(old)
 	cfg.AutoBio = migrateAutoBioConfig(old)
 	cfg.Personality = migratePersonalityConfig(old)
 	cfg.Reactions = migrateReactionsConfig(old)
@@ -254,9 +253,6 @@ func migrateSummaryConfig(old *Config) SummaryConfig {
 			Hour:            old.WeeklySummaryHour,
 			Minute:          old.WeeklySummaryMinute,
 			MaxParts:        old.WeeklySummaryMaxParts,
-			SearchMethod:    old.WeeklySummarySearchMethod,
-			FlagsEnabled:    old.SummaryFlagsEnabled,
-			KeywordsEnabled: old.SummaryKeywordsEnabled,
 		},
 	}
 }
@@ -292,7 +288,6 @@ func migrateSettingsPromptsConfig(old *Config) SettingsPromptsConfig {
 
 func migrateSrachConfig(old *Config) SrachConfig {
 	return SrachConfig{
-		Keywords:        old.SrachKeywords,
 		AnalysisEnabled: old.SrachAnalysisEnabled,
 	}
 }
@@ -459,50 +454,6 @@ func migrateDisambiguationConfig(old *Config) DisambiguationConfig {
 }
 
 // ============================================================================
-// Message Post-Processor
-// ============================================================================
-
-func migrateMessagePostProcessorConfig(old *Config) MessagePostProcessorConfig {
-	cfg := MessagePostProcessorConfig{
-		Enabled:              old.MessagePostProcessorEnabled,
-		RandomizationEnabled: old.MessagePostProcessorRandomizationEnabled,
-		Probabilities: PostProcessorProbabilitiesCfg{
-			SingleWord:     old.MessagePostProcessorSingleWordProbability,
-			ShortSentences: old.MessagePostProcessorShortSentencesProbability,
-			LongMessages:   old.MessagePostProcessorLongMessagesProbability,
-		},
-		Length: PostProcessorLengthCfg{
-			Min:                          old.MessagePostProcessorMinLength,
-			Max:                          old.MessagePostProcessorMaxLength,
-			LongMessageThreshold:         old.MessagePostProcessorLongMessageThreshold,
-			ForceLongProcessingThreshold: old.MessagePostProcessorForceLongProcessingThreshold,
-		},
-		Performance: PostProcessorPerfCfg{
-			TimeoutSeconds: old.MessagePostProcessorTimeoutSeconds,
-			Temperature:    old.MessagePostProcessorTemperature,
-		},
-		Cache: PostProcessorCacheCfg{
-			Enabled:    old.MessagePostProcessorCacheEnabled,
-			TTLMinutes: old.MessagePostProcessorCacheTTLMinutes,
-			ReplacementCache: struct {
-				Enabled    bool `yaml:"enabled"`
-				TTLMinutes int  `yaml:"ttl_minutes"`
-			}{
-				Enabled:    old.MessagePostProcessorReplacementCacheEnabled,
-				TTLMinutes: old.MessagePostProcessorReplacementCacheTTLMinutes,
-			},
-		},
-		ExcludeTypes:         old.MessagePostProcessorExcludeTypes,
-		WeeklySummaryExclude: old.MessagePostProcessorWeeklySummaryExclude,
-		Debug: PostProcessorDebugCfg{
-			Logging:             old.MessagePostProcessorDebugLogging,
-			LogOriginalMessages: old.MessagePostProcessorLogOriginalMessages,
-		},
-	}
-	return cfg
-}
-
-// ============================================================================
 // Auto Bio
 // ============================================================================
 
@@ -588,6 +539,8 @@ func migrateEmotionalLearningConfig(old *Config) EmotionalLearningConfig {
 		AnalysisIntervalHours:    old.EmotionalAnalysisIntervalHours,
 		AnalysisLookbackMessages: old.EmotionalAnalysisLookbackMessages,
 		MemoryRetentionDays:      old.EmotionalMemoryRetentionDays,
+		MinMessagesForAnalysis:   old.EmotionalMinMessagesForAnalysis,
+		AnalysisDebounceHours:    old.EmotionalAnalysisDebounceHours,
 	}
 }
 
@@ -700,141 +653,9 @@ func migrateStorageConfig(old *Config) StorageConfig {
 // ============================================================================
 
 func migratePromptsConfig(old *Config) PromptsConfig {
-	cfg := PromptsConfig{
+	return PromptsConfig{
 		Source: "inline",
-		Inline: make(map[string]string),
 	}
-
-	setPrompt := func(key, value string) {
-		if value != "" {
-			cfg.Inline[key] = value
-		}
-	}
-
-	// Основные
-	setPrompt("default", old.DefaultPrompt)
-	setPrompt("direct", old.DirectPrompt)
-	setPrompt("daily_take", old.DailyTakePrompt)
-	setPrompt("summary", old.SummaryPrompt)
-	setPrompt("weekly_summary", old.WeeklySummaryPrompt)
-	setPrompt("voice_message", old.VoiceMessagesPrompt)
-
-	// Срач
-	setPrompt("srach_warning", old.SRACH_WARNING_PROMPT)
-	setPrompt("srach_analysis", old.SRACH_ANALYSIS_PROMPT)
-	setPrompt("srach_confirm", old.SRACH_CONFIRM_PROMPT)
-
-	// Лимиты и донаты
-	setPrompt("rate_limit", old.RateLimitPrompt)
-	setPrompt("donate", old.DonatePrompt)
-
-	// Приветствие и форматирование
-	setPrompt("welcome", old.WelcomePrompt)
-	setPrompt("voice_format", old.VoiceFormatPrompt)
-
-	// Классификация и прямые сообщения
-	setPrompt("classify_direct_message", old.ClassifyDirectMessagePrompt)
-	setPrompt("serious_direct", old.SeriousDirectPrompt)
-	setPrompt("direct_reply_limit", old.DirectReplyLimitPrompt)
-
-	// Фото
-	setPrompt("photo_analysis", old.PhotoAnalysisPrompt)
-
-	// Auto Bio
-	setPrompt("auto_bio_initial_analysis", old.AutoBioInitialAnalysisPrompt)
-	setPrompt("auto_bio_update", old.AutoBioUpdatePrompt)
-
-	// Free Will
-	setPrompt("free_will_should_reply", old.FreeWillShouldReplyPrompt)
-	setPrompt("free_will_response_type", old.FreeWillResponseTypePrompt)
-	setPrompt("free_will_reaction", old.FreeWillReactionPrompt)
-	setPrompt("free_will_direct", old.FreeWillDirectPrompt)
-	setPrompt("free_will_general", old.FreeWillGeneralPrompt)
-	setPrompt("free_will_context", old.FreeWillContextPrompt)
-	setPrompt("free_will_silence", old.FreeWillSilencePrompt)
-	setPrompt("free_will_mood_analysis", old.FreeWillMoodAnalysisPrompt)
-	setPrompt("free_will_take_response", old.FreeWillTakeResponsePrompt)
-	setPrompt("free_will_direct_response_decision", old.FreeWillDirectResponseDecisionPrompt)
-	setPrompt("free_will_direct_response", old.FreeWillDirectResponsePrompt)
-	setPrompt("free_will_imagegen", old.FreeWillImageGenPrompt)
-
-	// Personality
-	setPrompt("personality_analysis", old.PersonalityAnalysisPrompt)
-	setPrompt("personality_name_analysis", old.PersonalityNameAnalysisPrompt)
-	setPrompt("personality_topic_analysis", old.PersonalityTopicAnalysisPrompt)
-	setPrompt("personality_self_update", old.PersonalitySelfUpdatePrompt)
-
-	// Reactions
-	setPrompt("clown_reaction", old.ClownReactionPrompt)
-	setPrompt("reaction_analysis", old.ReactionAnalysisPrompt)
-
-	// Web Search / Image
-	setPrompt("web_search_trigger", old.WebSearchTriggerPrompt)
-	setPrompt("image_gen_pre_prompt", old.ImageGenPrePrompt)
-
-	// Anti-Repetition
-	setPrompt("anti_repetition_rework", old.AntiRepetitionReworkPrompt)
-
-	// Message Post-Processor
-	setPrompt("message_post_processor_single_word", old.MessagePostProcessorSingleWordPrompt)
-	setPrompt("message_post_processor_short_sentences", old.MessagePostProcessorShortSentencesPrompt)
-	setPrompt("message_post_processor_long_messages", old.MessagePostProcessorLongMessagesPrompt)
-	setPrompt("message_post_processor_intelligent", old.MessagePostProcessorIntelligentPrompt)
-	setPrompt("message_post_processor_summary", old.MessagePostProcessorSummaryPrompt)
-
-	// Causal
-	setPrompt("causal_analysis", old.CausalAnalysisPrompt)
-	setPrompt("causal_influence", old.CausalInfluencePrompt)
-
-	// Emotional
-	setPrompt("emotional_analysis", old.EmotionalAnalysisPrompt)
-	setPrompt("emotional_adaptation", old.EmotionalAdaptationPrompt)
-	setPrompt("emotional_feedback", old.EmotionalFeedbackPrompt)
-
-	// Cognitive
-	setPrompt("internal_monologue", old.InternalMonologuePrompt)
-	setPrompt("self_reflection", old.SelfReflectionPrompt)
-
-	// Social
-	setPrompt("relationship_analysis", old.RelationshipAnalysisPrompt)
-
-	// Belief
-	setPrompt("belief_analysis", old.BeliefAnalysisPrompt)
-
-	// Устанавливаем values по умолчанию для ключевых промптов
-	defaults := map[string]string{
-		"default":               "Ты - участник чата.",
-		"direct":                "Отвечай прямо и по делу.",
-		"daily_take":            "Сгенерируй провокационную тему для обсуждения",
-		"summary":               "Создай краткое саммари",
-		"weekly_summary":        "Создай еженедельное саммари на основе дневных саммари",
-		"voice_message":         "Сгенерируй голосовое сообщение",
-		"welcome":               "Привет, чат! Я ваш новый спутник в беседе. Погнали!",
-		"voice_format":          "Расставь знаки препинания и разбей на абзацы",
-		"donate":                "Поддержи разработку!",
-		"rate_limit":            "Слишком часто запрашиваешь!",
-		"web_search_trigger":    "Нужен ли веб-поиск для ответа на этот вопрос? Ответь только 'yes' или 'no'.",
-		"classify_direct_message": "Классифицируй сообщение как serious или casual",
-		"serious_direct":        "Дай серьезный ответ",
-		"srach_warning":         "Зафиксирован повышенный градус дискуссии! Делайте ваши ставки, господа!",
-		"srach_analysis":        "Проанализируй аргументы сторон и подведи итог.",
-		"srach_confirm":         "Является ли следующее сообщение частью спора? Ответь только 'true' или 'false'.",
-	}
-	for key, defaultVal := range defaults {
-		cfg.Inline[key] = coalesce(cfg.Inline[key], defaultVal)
-	}
-
-	return cfg
-}
-
-// coalesce возвращает первое непустое значение.
-func coalesce(values ...string) string {
-	for _, v := range values {
-		if v != "" {
-			return v
-		}
-	}
-	return ""
 }
 
 // Ensure time import is used (for BackfillConfig.BatchDelay referenced above)

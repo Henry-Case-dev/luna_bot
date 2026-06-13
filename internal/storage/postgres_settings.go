@@ -15,7 +15,8 @@ func (ps *PostgresStorage) GetChatSettings(chatID int64) (*ChatSettings, error) 
 		SELECT
 			conversation_style, temperature, model, gemini_safety_threshold,
 			voice_transcription_enabled, direct_reply_limit_enabled,
-			direct_reply_limit_count, direct_reply_limit_duration_minutes
+			direct_reply_limit_count, direct_reply_limit_duration_minutes,
+			srach_analysis_enabled, photo_analysis_enabled
 		FROM chat_settings
 		WHERE chat_id = $1
 	`
@@ -29,11 +30,14 @@ func (ps *PostgresStorage) GetChatSettings(chatID int64) (*ChatSettings, error) 
 	var limitEnabled sql.NullBool
 	var limitCount sql.NullInt64
 	var limitDuration sql.NullInt64
+	var srachEnabled sql.NullBool
+	var photoEnabled sql.NullBool
 
 	err := row.Scan(
 		&style, &temp, &model, &safety,
 		&voiceEnabled, &limitEnabled,
 		&limitCount, &limitDuration,
+		&srachEnabled, &photoEnabled,
 	)
 
 	if err != nil {
@@ -71,6 +75,12 @@ func (ps *PostgresStorage) GetChatSettings(chatID int64) (*ChatSettings, error) 
 		duration := int(limitDuration.Int64)
 		settings.DirectReplyLimitDuration = &duration
 	}
+	if srachEnabled.Valid {
+		settings.SrachAnalysisEnabled = &srachEnabled.Bool
+	}
+	if photoEnabled.Valid {
+		settings.PhotoAnalysisEnabled = &photoEnabled.Bool
+	}
 
 	if ps.debug {
 		log.Printf("[Postgres GetChatSettings DEBUG] Настройки для chatID %d успешно получены.", chatID)
@@ -88,9 +98,10 @@ func (ps *PostgresStorage) SetChatSettings(settings *ChatSettings) error {
 		INSERT INTO chat_settings (
 			chat_id, conversation_style, temperature, model, gemini_safety_threshold,
 			voice_transcription_enabled, direct_reply_limit_enabled,
-			direct_reply_limit_count, direct_reply_limit_duration_minutes
+			direct_reply_limit_count, direct_reply_limit_duration_minutes,
+			srach_analysis_enabled, photo_analysis_enabled
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 		ON CONFLICT (chat_id) DO UPDATE SET
 			conversation_style = EXCLUDED.conversation_style,
 			temperature = EXCLUDED.temperature,
@@ -99,7 +110,9 @@ func (ps *PostgresStorage) SetChatSettings(settings *ChatSettings) error {
 			voice_transcription_enabled = EXCLUDED.voice_transcription_enabled,
 			direct_reply_limit_enabled = EXCLUDED.direct_reply_limit_enabled,
 			direct_reply_limit_count = EXCLUDED.direct_reply_limit_count,
-			direct_reply_limit_duration_minutes = EXCLUDED.direct_reply_limit_duration_minutes
+			direct_reply_limit_duration_minutes = EXCLUDED.direct_reply_limit_duration_minutes,
+			srach_analysis_enabled = EXCLUDED.srach_analysis_enabled,
+			photo_analysis_enabled = EXCLUDED.photo_analysis_enabled
 	`
 
 	var temp sql.NullFloat64
@@ -127,6 +140,16 @@ func (ps *PostgresStorage) SetChatSettings(settings *ChatSettings) error {
 		limitDuration.Int64 = int64(*settings.DirectReplyLimitDuration)
 		limitDuration.Valid = true
 	}
+	var srachEnabled sql.NullBool
+	if settings.SrachAnalysisEnabled != nil {
+		srachEnabled.Bool = *settings.SrachAnalysisEnabled
+		srachEnabled.Valid = true
+	}
+	var photoEnabled sql.NullBool
+	if settings.PhotoAnalysisEnabled != nil {
+		photoEnabled.Bool = *settings.PhotoAnalysisEnabled
+		photoEnabled.Valid = true
+	}
 
 	_, err := ps.db.Exec(query,
 		settings.ChatID,
@@ -138,6 +161,8 @@ func (ps *PostgresStorage) SetChatSettings(settings *ChatSettings) error {
 		limitEnabled,
 		limitCount,
 		limitDuration,
+		srachEnabled,
+		photoEnabled,
 	)
 
 	if err != nil {

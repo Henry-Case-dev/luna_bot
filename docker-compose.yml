@@ -5,20 +5,33 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: luna_bot-bot
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
       - PRODUCTION=true
       - DOCKER=true
       - NGINX_MODE=false
-      - USE_V2_ROUTER=true
+      - FREE_WILL_ENABLED=true
       - POSTGRESQL_HOST=db
       - POSTGRESQL_PORT=5432
+      - POSTGRESQL_SSLMODE=disable
+      - STORAGE_TYPE=postgres
       - POSTGRESQL_USER=${POSTGRESQL_USER}
       - POSTGRESQL_PASSWORD=${POSTGRESQL_PASSWORD}
       - POSTGRESQL_DBNAME=${POSTGRESQL_DBNAME}
+      - TELEGRAM_TOKEN=${TELEGRAM_TOKEN}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - GEMINI_API_KEY_RESERVE=${GEMINI_API_KEY_RESERVE}
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY}
+      - GOOGLE_SEARCH_API_KEY=${GOOGLE_SEARCH_API_KEY}
+      - GOOGLE_SEARCH_ENGINE_ID=${GOOGLE_SEARCH_ENGINE_ID}
     volumes:
       - bot-logs:/var/log/luna_bot
       - ./data:/app/data
       - ./configs/luna_bot.yaml:/app/configs/luna_bot.yaml:ro
+      - ./internal/bot/prompts:/app/internal/bot/prompts:ro
     ports:
       - "127.0.0.1:8080:8080"
     restart: unless-stopped
@@ -55,6 +68,8 @@ services:
       POSTGRES_USER: ${POSTGRESQL_USER}
       POSTGRES_PASSWORD: ${POSTGRESQL_PASSWORD}
       POSTGRES_DB: ${POSTGRESQL_DBNAME}
+    ports:
+      - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     restart: unless-stopped
