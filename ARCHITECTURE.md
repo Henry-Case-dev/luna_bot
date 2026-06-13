@@ -754,3 +754,24 @@ func (r *LLMRouterV2) refreshCaches() {
 | 7 | `internal/openrouter/client.go` | Убрать `context.WithTimeout` (150s), оставить только HTTP client timeout |
 | 8 | `internal/openai/client.go` | Убрать `context.WithTimeout` (150s), оставить только HTTP client timeout |
 | 9 | `internal/anthropic/client.go` | Убрать `context.WithTimeout` (150s), оставить только HTTP client timeout |
+
+## 16. Phase 14: Аудит, фиксы, коммит (2026-06-14)
+
+### 16.1 Known Issues Fixed
+
+| Issue | Status | Details |
+|-------|--------|---------|
+| `reference_girl_bot/` (226 files) | FIXED | Added to `.gitignore` |
+| `coverage` file | FIXED | Added to `.gitignore` |
+| 7 failing tests | FIXED | 4 stale + 3 bugs |
+| go vet | PASS | No warnings |
+| go build | PASS | All packages compile |
+| go test | PASS | All test suites green |
+
+### 16.2 Fixes Applied
+
+1. **`llm_router_v2.go`** — `isRetryableError()`: "circuit breaker is open" теперь retryable → fallback срабатывает при открытом CB.
+2. **`context_isolator_test.go`** — тесты переведены на XML-формат, совместимый с `StripSensitiveDataXML()`.
+3. **`pipeline_simulation_test.go`** — удалены 2 stale-теста (prompt template).
+4. **`prompts_test.go`** — удалены 2 stale-теста (go-template directives → `{PLACEHOLDER}`).
+5. **`.gitignore`** — добавлены `reference_girl_bot/`, `coverage`, `coverage/`.
